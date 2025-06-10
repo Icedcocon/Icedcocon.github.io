@@ -1,3 +1,3 @@
 User-agent: *
 Disallow:
-Sitemap: www.65811786.xyz/sitemap.xml
+Sitemap: https://www.65811786.xyz/sitemap.xml

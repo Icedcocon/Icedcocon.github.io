@@ -2,22 +2,22 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
     <title>示例 on Xiaofan&#39;s Blog</title>
-    <link>www.65811786.xyz/tags/%E7%A4%BA%E4%BE%8B/</link>
+    <link>https://www.65811786.xyz/tags/%E7%A4%BA%E4%BE%8B/</link>
     <description>Recent content in 示例 on Xiaofan&#39;s Blog</description>
     <image>
       <title>Xiaofan&#39;s Blog</title>
-      <url>www.65811786.xyz/img/logo.jpg</url>
-      <link>www.65811786.xyz/img/logo.jpg</link>
+      <url>https://www.65811786.xyz/img/logo.jpg</url>
+      <link>https://www.65811786.xyz/img/logo.jpg</link>
     </image>
     <generator>Hugo -- 0.147.8</generator>
     <language>zh</language>
     <lastBuildDate>Tue, 10 Jun 2025 17:27:23 +0800</lastBuildDate>
-    <atom:link href="www.65811786.xyz/tags/%E7%A4%BA%E4%BE%8B/index.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="https://www.65811786.xyz/tags/%E7%A4%BA%E4%BE%8B/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>我的第一篇测试文章</title>
-      <link>www.65811786.xyz/posts/test-post/</link>
+      <link>https://www.65811786.xyz/posts/test-post/</link>
       <pubDate>Fri, 26 Jul 2024 10:00:00 +0800</pubDate>
-      <guid>www.65811786.xyz/posts/test-post/</guid>
+      <guid>https://www.65811786.xyz/posts/test-post/</guid>
       <description>&lt;p&gt;这是我的第一篇测试文章。&lt;/p&gt;
 &lt;h2 id=&#34;这是一个二级标题&#34;&gt;这是一个二级标题&lt;/h2&gt;
 &lt;p&gt;这里是一些示例内容，用于测试文章的显示效果。&lt;/p&gt;
