@@ -2,15 +2,15 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
   <channel>
     <title>Series on Xiaofan&#39;s Blog</title>
-    <link>192.168.2.20/series/</link>
+    <link>https://www.65811786.xyz/series/</link>
     <description>Recent content in Series on Xiaofan&#39;s Blog</description>
     <image>
       <title>Xiaofan&#39;s Blog</title>
-      <url>192.168.2.20/img/logo.jpg</url>
-      <link>192.168.2.20/img/logo.jpg</link>
+      <url>https://www.65811786.xyz/img/logo.jpg</url>
+      <link>https://www.65811786.xyz/img/logo.jpg</link>
     </image>
     <generator>Hugo -- 0.147.8</generator>
     <language>zh</language>
-    <atom:link href="192.168.2.20/series/index.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="https://www.65811786.xyz/series/index.xml" rel="self" type="application/rss+xml" />
   </channel>
 </rss>
