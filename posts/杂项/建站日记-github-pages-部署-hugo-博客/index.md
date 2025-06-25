@@ -602,7 +602,7 @@ apt install -y netplan.io curl
 
 ```bash
 # 创建 netplan 配置文件
-cat > /etc/netplan/50-cloud-init.yaml <<-EOF
+cat > /etc/netplan/01-netcfg.yaml <<-EOF
 network:
   version: 2
   renderer: networkd
