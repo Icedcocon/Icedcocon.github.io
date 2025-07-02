@@ -3,27 +3,25 @@
 
 ## 概述
 
-当你想在 TrueNAS SCALE 上运行 Incus 时，通常会为其配置一个专属的存储池以获得最佳性能。但如果你不想为此单独分配一块物理硬盘，而是希望利用TrueNAS启动盘（`boot-pool`）上的闲置空间，该怎么办？
-
-本文将介绍一个高级技巧：通过命令行在启动池上创建**基于文件的虚拟存储池（File-backed Vdev）**，并将其挂载给 Incus 应用，从而实现空间的高效利用。
+想在 TrueNAS SCALE 上运行 Incus，但不想为其分配专用硬盘？本文介绍一个高级技巧：利用启动盘 (`boot-pool`) 的闲置空间，通过命令行创建**基于文件的虚拟存储池 (File-backed Vdev)**，并将其挂载给 Incus 应用，实现空间的高效利用。
 
 > [!WARNING]
 > **适用场景与限制**
-> 这是一个**纯命令行（CLI-Only）** 的高级技巧。通过此方法创建的存储池**无法被 TrueNAS GUI 存储仪表盘识别或管理**。
+> 这是一个**纯命令行 (CLI-Only)** 的高级技巧，所创建的存储池**无法被 TrueNAS GUI 识别或管理**。
 >
-> 它的核心优势是，虽然存储池本身对 GUI "隐形"，但从该池创建的数据集（Dataset）可以作为 **主机路径卷（Host Path Volume）** 成功挂载到 Incus 等应用中。这使其成为测试环境、非关键应用或命令行工具管理的理想选择。
+> 核心优势在于：尽管存储池对 GUI "隐形"，但其数据集 (Dataset) 可作为**主机路径卷 (Host Path Volume)** 成功挂载到 Incus 等应用中。此方法非常适合测试环境、非关键应用或纯命令行管理场景。
 
 ## 操作步骤
 
-以下步骤将指导你在 `boot-pool` 上创建一个 100GB 的虚拟存储池，并将其分配给 Incus 使用。
+以下步骤将指导你在 `boot-pool` 上创建一个 100GB 的虚拟存储池，并分配给 Incus。
 
-### 1. 登录 TrueNAS Shell
+### 登录 TrueNAS Shell
 
 通过 Web UI 的 **System Settings -> Shell** 或 SSH 客户端登录。
 
-### 2. 创建虚拟磁盘文件
+### 创建虚拟磁盘文件
 
-使用 `truncate` 命令在启动池中创建一个稀疏文件（Sparse File）。它将作为我们新存储池的"虚拟硬盘"。
+使用 `truncate` 命令在启动池中创建一个稀疏文件 (Sparse File)，它将作为新存储池的"虚拟硬盘"。
 
 例如，在 `/mnt/boot-pool/` 目录下创建一个 100GB 的文件：
 ```shell
@@ -33,20 +31,20 @@ truncate -s 100G /mnt/boot-pool/incus-vdisk.img
 > [!NOTE]
 > `boot-pool` 的挂载路径通常是 `/mnt/boot-pool`。稀疏文件初始占用空间极小，会随数据写入而增长。
 
-### 3. 创建 ZFS 存储池
+### 创建 ZFS 存储池
 
-使用 `zpool create` 命令，并指定文件路径来建立新池。我们将池命名为 `incus_pool`。
+使用 `zpool create` 命令并指定文件路径，建立名为 `incus_pool` 的新池。
 
 ```shell
 # Create a pool named 'incus_pool' with one file-backed vdev.
 # -O canmount=off is crucial to prevent mount errors on the parent filesystem.
 zpool create -O canmount=off incus_pool /mnt/boot-pool/incus-vdisk.img
 ```
-`zpool` 会提示你正在使用文件，这是预期行为，确认即可。
+`zpool` 会提示你正在使用文件，这是预期行为，请确认。
 
-### 4. 导入存储池并创建数据集
+### 导入存储池并创建数据集
 
-为了让系统正确挂载和使用该池，你需要先将其导出，然后使用指定目录重新导入。导入后，我们立即创建一个专用于 Incus 的数据集。
+为确保系统正确挂载，需先导出存储池，再使用指定目录重新导入，然后创建 Incus 专用数据集。
 
 ```shell
 # 1. Export the pool to make it available for import.
@@ -55,43 +53,25 @@ zpool export incus_pool
 # 2. Re-import it, specifying the search path with the -d flag.
 zpool import -d /mnt/boot-pool incus_pool
 
-# 3. (非必须) Create a dataset for Incus data.
+# 3. (Optional) Create a dataset for Incus data.
 zfs create incus_pool/data
 ```
-完成后，你可以通过 `ls /mnt/incus_pool/data` 检查数据集是否已成功挂载。
+完成后，通过 `ls /mnt/incus_pool/data` 检查数据集是否已成功挂载。
 
-### 5. （可选）挂载存储到 Incus 应用
+### 在TrueNAS中查看数据集（DataSet）
 
-这是将我们的"隐形"存储池与 Incus 连接起来的关键一步。
+>[!TIP]
+>TrueNAS 的 `Storage` 存储池页面无法管理 `incus_pool` ，但在 `Datasets` 数据集页面却可以管理并使用该存储池。
 
-1.  在 TrueNAS UI 中，导航至 **Apps**，找到你的 Incus 应用并点击 **Edit**。
-2.  向下滚动到 **Storage** 部分。
-3.  点击 **Add** 并选择 **Host Path Volume**。
-4.  配置挂载点：
-    *   **Host Path**: 输入我们刚刚创建的数据集挂载路径 `/mnt/incus_pool/data`。
-    *   **Mount Path in Pod**: 输入 Incus 默认的数据目录 `/var/lib/incus/`。
-5.  保存更改。应用将会重启并应用新的存储配置。
+虽然在 TrueNAS 存储池（Pool）页面无法查看 `incus_pool` ，但是在数据集页面却可以看到该存储池，并可以在 `incus_pool` 存储池中创建新的数据集。
+同样的原理，在后台通过命令行创建的数据集，以及在 instances 页面初始化 incus 时创建的数据集不会在 `Datasets` 页面展示。
 
-### 6. 关于 Incus 初始化
+### Incus 初始化注意事项
 
-与标准 Incus 安装不同，我们**不需要**进入容器执行 `incus admin init`。
+> [!WARNING] 
+> 不推荐通过shell在命令行执行 `incus admin init` 初始化，避免影响后续 TrueNAS 升级稳定性。
 
-当你在 TrueNAS UI 中的 instance 菜单中，进行 Global Settings， 选择 Storage 的 Pool 下拉菜单，可以选择。
-
-这样做的好处是：
-- **避免网络冲突**：自动初始化过程不会尝试创建新的网桥（如 `incusbr0`），从而避免了与 TrueNAS 系统网络的潜在冲突。
-- **简化部署**：所有配置均在 UI 中完成，流程更统一。
-
-## GUI 集成困境与技术解析
-
-**为什么这个方案能行得通？**
-
-根本原因在于 TrueNAS 不同层级之间的关注点不同：
-
--   **管理层（`midclt`）的局限**：TrueNAS 的核心管理服务 `midclt` 和 GUI 被设计为管理**物理块设备**。它们在扫描存储池时，不会检查文件路径，因此我们的 `incus_pool` 对它们是"隐形"的。实践证明，任何尝试使用 `midclt call pool.import_pool` 导入文件池的操作都会静默失败，无法令其在 GUI 中可见。
--   **容器层的灵活性**：而 Incus 应用所在的容器（Kubernetes）层不关心存储的来源。它只需要一个有效的**主机路径（Host Path）**。由于我们的 `incus_pool/data` 数据集被 ZFS 成功挂载到了 `/mnt/incus_pool/data`，这个路径是真实存在的。因此，容器可以毫无问题地将其挂载到内部。
-
-最终，我们巧妙地利用了这个架构差异，让一个对上层管理系统"隐形"的存储池，为底层应用提供了切实可用的存储空间。
+正确做法是：在 TrueNAS UI 的 Incus 应用设置中，直接从存储 (Storage) 下拉菜单里选择创建好的池。TrueNAS 会处理初始化。
 
 ## 常见问题排查
 
@@ -104,10 +84,10 @@ use '-f' to override the following errors:
 /mnt/boot-pool/incus-vdisk.img is part of exported pool 'incus_pool'
 ```
 **原因**:
-首次创建池时，命令可能因某些原因（如忘记添加 `-O canmount=off`）而中断，但池已被不完整地创建。ZFS 会将该文件标记为"已使用"。
+命令中断 (例如忘记添加 `-O canmount=off`) 导致池创建不完整。ZFS 仍会将该文件标记为"已使用"。
 
 **解决方案**:
-如果你确认要覆盖之前的残留配置，可以直接在 `zpool create` 命令中使用 `-f` (force) 标志。这会一步完成销毁和重建。
+确认要覆盖残留配置后，在 `zpool create` 命令中加入 `-f` (force) 标志，强制销毁并重建池。
 ```shell
 # Force create the pool, overwriting any lingering configuration on the file.
 zpool create -f -O canmount=off incus_pool /mnt/boot-pool/incus-vdisk.img
@@ -117,28 +97,92 @@ zpool create -f -O canmount=off incus_pool /mnt/boot-pool/incus-vdisk.img
 
 #### 解析：`mountpoint` 与 `canmount=off` 的作用
 
-在示例命令 `zpool create -f -O mountpoint=/mnt/virtual_pool -O canmount=off ...` 中，你可能会对 `mountpoint` 和 `canmount` 的组合感到困惑。
+在示例 `zpool create -f -O mountpoint=/mnt/virtual_pool -O canmount=off ...` 中，`mountpoint` 和 `canmount` 的组合可能令人困惑。
 
--   **`-O mountpoint=/mnt/virtual_pool`**: 这个参数为存储池的**根文件系统**设置 `mountpoint`（挂载点）属性。它告诉 ZFS："如果这个文件系统被允许挂载，它应该被挂载到 `/mnt/virtual_pool` 目录。"
+-   **`-O mountpoint=/mnt/virtual_pool`**：为池的根文件系统设置 `mountpoint` 属性，定义了"如果允许挂载，应挂载到何处"。
 
--   **为什么它看起来"没生效"？**: 原因是紧随其后的 **`-O canmount=off`**。这个属性**禁止** ZFS 自动挂载该文件系统。`mountpoint` 定义了**挂载到哪里**，而 `canmount` 决定了**是否允许挂载**。当 `canmount` 为 `off` 时，挂载操作被完全阻止。
+-   **`-O canmount=off`**：此属性**禁止** ZFS 自动挂载该根文件系统。`mountpoint` 定义了**位置**，`canmount` 决定**权限**。`canmount=off` 会阻止挂载，因此 `mountpoint` 设置看起来"未生效"。
 
 **为什么这么做？**
 
-这是一种 ZFS 的最佳实践，其目的在于：
-1.  **将根作为纯容器**：不直接在存储池的根目录读写数据，而是将其作为一个干净的、用于组织子文件系统（Dataset）的容器。
-2.  **为子数据集提供挂载基准**：根文件系统的 `mountpoint` 属性会成为其下所有子数据集挂载路径的**父路径**。
+这是一种 ZFS 最佳实践，目的在于：
+1.  **保持根的纯净**：将池的根目录作为组织数据集的"容器"，避免直接在根上读写数据。
+2.  **设定挂载基准**：根文件系统的 `mountpoint` 成为所有子数据集挂载点的**父路径**。
 
-例如，设置完成后，当你创建一个新的数据集：
+例如，创建新数据集 `zfs create virtual_pool/data` 后，其挂载点会自动继承并设为 `/mnt/virtual_pool/data`，并因默认 `canmount=on` 而成功挂载。此法使存储结构更清晰。
+
+## 高级操作：手动管理容器文件系统
+
+在数据恢复或离线修改配置等特殊场景下，你可能需要直接操作 Incus 容器的文件系统。Incus 将其存储于独立的 ZFS 数据集，并设置挂载点为 `legacy`，导致在宿主机上不可见。
+
+以下步骤指导你如何在容器停止时，安全地手动挂载文件系统，并在操作完成后恢复原状。
+
+> [!TIP]
+> 本章节面向 incus 容器/虚拟机操作系统定制化场景，由于 incus 官方容器或虚拟机仅支持常见发行版，部分小众的版本如 ImmotalWrt 需要自行构建，因此需要对 incus 容器/虚拟机的文件系统进行挂载和调整。
+
+### 查看容器的 ZFS 数据集
+
+首先，找到容器对应的 ZFS 数据集。
+
 ```shell
-zfs create virtual_pool/data
+# 递归列出 virtual_pool 下的所有数据集
+zfs list -r virtual_pool
+# 查看所有dataset 
+# zfs list 
 ```
-这个 `virtual_pool/data` 数据集的挂载点会自动设置为 `/mnt/virtual_pool/data`，并因为其默认的 `canmount=on` 属性而被成功挂载。这种方式让存储结构更清晰、管理更方便。
 
-## 总结
+你会看到类似输出：
+```
+NAME                                           USED  AVAIL  REFER  MOUNTPOINT
+virtual_pool                                   367M  96.0G    24K  /mnt/virtual_pool
+...
+virtual_pool/.ix-virt/containers/openwrt       55.5K  96.0G  7.49M  legacy
+...
+```
+这里的关键信息是：
+- **`NAME`**: `virtual_pool/.ix-virt/containers/openwrt` 就是 `openwrt` 容器的文件系统数据集。
+- **`REFER`**: `7.49M` 是这个数据集自身占用的空间，也就是容器文件系统的实际大小。
+- **`MOUNTPOINT`**: `legacy` 确认了该数据集的挂载由 Incus 控制，而非系统自动管理。
 
-通过创建基于文件的虚拟存储池，我们可以在 TrueNAS SCALE 中为 Incus 实现一种灵活、经济的存储方案。这对于熟悉命令行的专家来说，是平衡成本与功能需求的实用技巧。
+### 手动挂载、操作与恢复
 
-但请务必清醒地认识到它的局限性：它是一个脱离了 TrueNAS 核心管理体系的"孤岛"，其性能和功能均有折衷。对于任何关键的生产环境，最佳实践永远是使用**独立的物理硬盘**来构建由 GUI 管理的高可用存储池。
+> [!WARNING]
+> **请务必在容器停止的状态下执行以下操作！**
 
+#### 停止容器并创建临时挂载点
+
+```shell
+# 确保目标容器已停止
+incus stop openwrt
+
+# 创建一个临时目录用于挂载
+mkdir -p /mnt/temp_openwrt_root
+```
+
+#### 临时挂载文件系统
+我们将临时覆盖 `legacy` 设置，以手动挂载文件系统。
+
+```shell
+# 1. 临时设置新的挂载点
+zfs set mountpoint=/mnt/temp_openwrt_root virtual_pool/.ix-virt/containers/openwrt
+
+# 2. 挂载数据集
+zfs mount virtual_pool/.ix-virt/containers/openwrt
+```
+此时，你可以通过 `ls -l /mnt/temp_openwrt_root` 查看和操作容器的完整文件系统。
+
+#### 操作完成后的清理
+完成文件操作后，**必须**将挂载控制权交还给 Incus。
+
+```shell
+# 1. 卸载文件系统
+zfs unmount virtual_pool/.ix-virt/containers/openwrt
+
+# 2. 将挂载点属性恢复为 legacy
+zfs set mountpoint=legacy virtual_pool/.ix-virt/containers/openwrt
+
+# 3. 删除临时目录
+rmdir /mnt/temp_openwrt_root
+```
+完成后，即可通过 `incus start openwrt` 安全地重启容器。这个过程确保了 Incus 能继续正常管理容器的生命周期。
 
