@@ -40,6 +40,24 @@ bash -x ./config_port_filter.sh add $ips 10.244.0.0/16 10.10.0.0/16 172.17.0.0/1
 > *   `127.0.0.1`: **本地回环地址 (Loopback Address)**.
 >     *   代表 `localhost`，即节点自身。许多运行在节点上的代理或守护进程（如 `kubelet`, `kube-proxy`）需要通过该地址与本地监听的服务（例如 API Server 的健康检查端点）通信。将其加入白名单是保证节点自身组件正常工作的基本要求。
 
+> [!TIP] 如何确认实际的网络 CIDR？
+>
+> 上述 `10.244.0.0/16` 和 `10.10.0.0/16` 是 `kubeadm` 安装环境下的常见默认值，但实际生产环境中的配置可能不同。在 `kubectl` 无法使用的情况下，您可以通过直接检查主节点上的配置文件来确认准确的网段：
+>
+> *   **Pod 网段 (Cluster CIDR)**:
+>     *   **文件**: `/etc/kubernetes/manifests/kube-controller-manager.yaml`
+>     *   **查找**: 在 `command` 列表中寻找 `--cluster-cidr` 参数。
+>
+> *   **服务网段 (Service CIDR)**:
+>     *   **文件**: `/etc/kubernetes/manifests/kube-apiserver.yaml`
+>     *   **查找**: 在 `command` 列表中寻找 `--service-cluster-ip-range` 参数。
+>
+> *   **Docker 网段**:
+>     *   **命令**: 在任意节点上运行 `ip addr show docker0` 查看 `docker0` 网桥的 IP。
+>     *   **文件**: 检查 `/etc/docker/daemon.json` 文件中的 `bip` 配置。
+>
+> 对于非 `kubeadm` 安装的集群，这些配置可能位于 systemd 服务文件 (如 `/etc/systemd/system/kube-apiserver.service`) 中。在调整防火墙规则前，务必确认您环境中的实际网络配置。
+
 ## 核心逻辑：`config_port_filter.sh` 详解
 
 脚本 `config_port_filter.sh` 承载了防火墙策略的核心逻辑，其设计遵循 **"白名单优先，默认拒绝"** 的安全原则。
