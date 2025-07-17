@@ -187,33 +187,117 @@ config interface 'lan'
         option netmask '255.255.255.0'
         option gateway '192.168.2.1'      # 主路由 IP
         option dns '8.8.8.8 1.1.1.1'
+
+config interface 'wan6'
+        option device '@lan'          # 使用和 lan 接口相同的物理设备 (eth0)
+        option proto 'dhcpv6'         # 设置为 DHCPv6 客户端模式
+        option reqaddress 'try'       # 尝试向DHCPv6服务器请求一个地址
+        option reqprefix 'auto'       # 自动向上游路由器请求IPv6前缀
 ```
 
 > [!TIP]
 > 只需保留 `lan` 口的基础配置即可，可删除或注释掉文件中其他无关的 `interface` 和 `globals` 配置。修改后执行 `/etc/init.d/network restart` 重启网络服务。如果网络不通，尝试重启整个容器 `reboot`。
 
-#### 3.3 关闭防火墙
+#### 3.3 开启防火墙
 
 > [!WARNING]
-> 如果您计划使用 OpenClash 的 Fake-IP 模式，请 **不要** 关闭容器的防火墙。
+> 将 OpenWrt 作为旁路由时，通常建议关闭防火墙以避免不必要的网络问题。但如果您计划使用 OpenClash 的 Fake-IP 模式，请 **不要** 关闭容器的防火墙，否则会导致 OpenClash 无法正常工作。
 
 ```bash
-/etc/init.d/firewall stop
-/etc/init.d/firewall disable
+/etc/init.d/firewall start
+/etc/init.d/firewall enable
 ```
 
-#### 3.4 安装常用插件
+#### 3.4 安装常用插件与配置
+
+##### 1. 更新软件源 (推荐)
+为了加速插件下载，建议将 `opkg` 源更换为国内镜像。
+
+> [!TIP]
+> 请注意镜像源需要与您的 OpenWrt/ImmortalWRT 版本匹配。以下命令以 ImmortalWRT 为例，将其官方源替换为阿里镜像源。如果镜像地址失效，请查找其他可用镜像。
 
 ```bash
+# 您可以手动编辑 /etc/opkg/distfeeds.conf 文件，或使用以下 sed 命令快速替换
+sed -i 's|https://downloads.immortalwrt.org|https://mirrors.aliyun.com/openwrt|g' /etc/opkg/distfeeds.conf
+
+# 更新软件包列表
 opkg update
-opkg install ca-certificates
-opkg install luci-theme-argon # argon 主题
-opkg install luci-i18n-ttyd-zh-cn # 命令行终端
-opkg install luci-i18n-filebrowser-go-zh-cn # 文件浏览器
-opkg install openssh-sftp-server # SFTP支持
 ```
+
+##### 2. 安装基础工具
+```bash
+# 安装 SSH 服务端、SFTP 服务
+opkg install openssh-server openssh-sftp-server 
+# 安装 网页终端 (ttyd) 和文件浏览器（可选）
+opkg install luci-i18n-ttyd-zh-cn luci-i18n-filebrowser-go-zh-cn
+```
+
+##### 3. 安装 Argon 主题 (可选)
+Argon 是一个非常流行和美观的 LuCI 界面主题。
+```bash
+# 安装主题依赖
+opkg install luci-compat luci-lib-ipkg
+
+# 从 GitHub 下载并安装主题（请检查并使用最新的版本链接）
+wget --no-check-certificate https://github.com/jerrykuku/luci-theme-argon/releases/download/v2.3.2/luci-theme-argon_2.3.2-r20250207_all.ipk
+opkg install luci-theme-argon*.ipk
+
+# 清理安装包
+rm luci-theme-argon*.ipk
+```
+
+##### 4. 安装 iStore 应用商店 (可选)
+iStore 提供了图形化的插件中心，方便查找和安装插件。
+```bash
+wget -qO imm.sh https://cafe.cpolar.top/wkdaily/zero3/raw/branch/main/zero3/imm.sh && chmod +x imm.sh && ./imm.sh
+```
+
+##### 5. 为 OpenClash 等插件做准备 (可选)
 > [!NOTE]
-> iStore 商店安装: `wget -qO imm.sh https://cafe.cpolar.top/wkdaily/zero3/raw/branch/main/zero3/imm.sh && chmod +x imm.sh && ./imm.sh`
+> 此步骤仅适用于计划安装和使用 OpenClash 等高级代理插件的用户。
+>
+> 1.  **确保防火墙已开启**：如 `3.3` 节所述，OpenClash 的 Fake-IP 模式需要系统防火墙正常工作。
+> 2.  **安装 `dnsmasq-full`**：`openclash` 等插件依赖 `dnsmasq` 的完整功能。
+
+```bash
+# 移除基础版 dnsmasq 并安装功能更全的 dnsmasq-full
+opkg remove dnsmasq
+opkg install dnsmasq-full
+```
+
+#### 3.5 `dnsmasq` 启动失败排错
+
+在某些情况下，尤其是在容器环境中，`dnsmasq` 可能会因为无法访问随机数生成器而启动失败。
+
+**故障现象**
+
+执行 `/etc/init.d/dnsmasq status` 显示 `not running`。
+查看日志 `logread | grep dnsmasq` 会发现关键错误：
+```log
+daemon.crit dnsmasq[1]: failed to seed the random number generator: No such file or directory
+daemon.crit dnsmasq[1]: FAILED to start up
+```
+
+**原因分析**
+
+新版 OpenWrt 为了安全，会将 `dnsmasq` 进程置于一个沙箱 (`ujail`) 环境中运行。默认情况下，沙箱会阻止 `dnsmasq` 访问其运行所需的系统熵源（随机数文件），导致启动失败。
+
+**解决方案**
+
+我们需要明确授权 `dnsmasq` 的沙箱环境访问 `/dev/urandom`。执行以下命令：
+
+```bash
+# 允许 dnsmasq 的沙箱环境访问 /dev/urandom
+uci set dhcp.@dnsmasq[0].random_seed='/dev/urandom'
+uci add_list dhcp.@dnsmasq[0].addnmount='/dev/urandom'
+uci commit dhcp
+
+# 重启服务使配置生效
+/etc/init.d/dnsmasq restart
+```
+
+> [!TIP]
+> 如果重启服务后问题依旧，建议执行 `reboot` 重启整个 OpenWrt 容器，以确保在完全干净的环境下应用新配置。
 
 ## 方案二：Docker 部署
 
