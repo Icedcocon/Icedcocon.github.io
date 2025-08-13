@@ -1,0 +1,9 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>Nmap - tag - 小饭的技术站</title><link>https://www.65811786.xyz/tags/nmap/</link><description>Nmap - tag - 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh</language><lastBuildDate>Sun, 10 Aug 2025 09:56:28 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/tags/nmap/" rel="self" type="application/rss+xml"/><item><title>使用 Nmap 探测 IPv6 端口与防火墙</title><link>https://www.65811786.xyz/posts/%E7%BD%91%E7%BB%9C%E8%BF%9C%E7%A8%8B/nmap%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Sun, 10 Aug 2025 09:56:28 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/%E7%BD%91%E7%BB%9C%E8%BF%9C%E7%A8%8B/nmap%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<p>Nmap (Network Mapper) 是一款强大的开源网络扫描和安全审计工具。本文将介绍如何使用 <code>nmap</code> 探测远程 IPv6 地址的 TCP 和 UDP 端口监听状况以及分析防火墙配置。</p>
+<h2 id="基本要求" class="headerLink">
+    <a href="#%e5%9f%ba%e6%9c%ac%e8%a6%81%e6%b1%82" class="header-mark"></a>1 基本要求</h2><ul>
+<li><strong>安装 Nmap</strong>: 确保你的系统上已经安装了 Nmap。</li>
+<li><strong>IPv6 连接</strong>: 你的机器需要有 IPv6 连接才能扫描 IPv6 地址。</li>
+<li><strong>权限</strong>: 某些扫描类型（如 SYN 扫描 <code>-sS</code>）需要管理员或 root 权限。</li>
+</ul>
+<h2 id="扫描-ipv6-地址的-tcp-和-udp-端口" class="headerLink">
+    <a href="#%e6%89%ab%e6%8f%8f-ipv6-%e5%9c%b0%e5%9d%80%e7%9a%84-tcp-%e5%92%8c-udp-%e7%ab%af%e5%8f%a3" class="header-mark"></a>2 扫描 IPv6 地址的 TCP 和 UDP 端口</h2><p>要同时扫描一个 IPv6 地址的 TCP 和 UDP 端口，你可以使用 <code>-sS</code> (TCP SYN 扫描) 和 <code>-sU</code> (UDP 扫描)。SYN 扫描速度快且隐蔽，但需要高权限。如果无高权限，可改用 <code>-sT</code> (TCP Connect 扫描)。</p>]]></description></item></channel></rss>
