@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Web服务器 on 小饭的技术站</title>
+    <link>http://localhost:1313/tags/web%E6%9C%8D%E5%8A%A1%E5%99%A8/</link>
+    <description>Recent content in Web服务器 on 小饭的技术站</description>
+    <generator>Hugo</generator>
+    <language>zh</language>
+    <lastBuildDate>Mon, 23 Jun 2025 09:43:19 +0800</lastBuildDate>
+    <atom:link href="http://localhost:1313/tags/web%E6%9C%8D%E5%8A%A1%E5%99%A8/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Nginx 快速入门</title>
+      <link>http://localhost:1313/posts/%E7%BD%91%E7%BB%9C%E8%BF%9C%E7%A8%8B/nginx%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link>
+      <pubDate>Mon, 23 Jun 2025 09:43:19 +0800</pubDate>
+      <guid>http://localhost:1313/posts/%E7%BD%91%E7%BB%9C%E8%BF%9C%E7%A8%8B/nginx%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid>
+      <description>&lt;h2 id=&#34;概述&#34;&gt;概述&lt;/h2&gt;&#xA;&lt;p&gt;Nginx（发音为 &amp;ldquo;engine-x&amp;rdquo;）是一款高性能的开源 Web 服务器，同时也是一个反向代理服务器、负载均衡器、邮件代理服务器和通用的 TCP/UDP 代理服务器。它由 Igor Sysoev 最初为俄罗斯访问量第二的网站 Rambler.ru 开发，并于 2004 年公开发布。Nginx 以其高并发、低内存消耗和高稳定性而闻名，在全球范围内被广泛应用。&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,24 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>Metrics - 标签 - 小饭的技术站</title><link>https://www.65811786.xyz/tags/metrics/</link><description>Metrics - 标签 - 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Thu, 11 Dec 2025 16:12:40 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/tags/metrics/" rel="self" type="application/rss+xml"/><item><title>SGLang Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Thu, 11 Dec 2025 16:12:40 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<p>调研目标
+SGLang
+e2e_request_latency_seconds
+sglang:time_to_first_token_seconds
+sglang:num_running_reqs
+sglang:num_queue_reqs
+sglang:time_per_output_token_seconds</p>
+<h2 id="sglang" class="headerLink">
+    <a href="#sglang" class="header-mark"></a>3 SGLang</h2><h3 id="metrics-计算详解-sglang-runtime" class="headerLink">
+    <a href="#metrics-%e8%ae%a1%e7%ae%97%e8%af%a6%e8%a7%a3-sglang-runtime" class="header-mark"></a>3.1 Metrics 计算详解 (SGLang Runtime)</h3><p>以下分析基于 SGLang Runtime (SRT) 架构。SGLang 版本为 0.5.4， 发布于 2025 年 10月 26日。</p>
+<h4 id="1-v1chatcompletions-接口调用流程图" class="headerLink">
+    <a href="#1-v1chatcompletions-%e6%8e%a5%e5%8f%a3%e8%b0%83%e7%94%a8%e6%b5%81%e7%a8%8b%e5%9b%be" class="header-mark"></a>3.1.1 1. /v1/chat/completions 接口调用流程图</h4><p><strong>Metrics 路由注册与采集机制</strong>
+在 <code>launch_server</code> 启动 FastAPI 服务时，<code>lifespan</code> 函数调用 <code>add_prometheus_middleware</code> (<code>sglang/srt/utils/common.py</code>) 注册 <code>/metrics</code> 路由。该路由由 <code>prometheus_client</code> 的 ASGI App 处理，通过 <code>MultiProcessCollector</code> 实现多进程指标聚合。</p>]]></description></item><item><title>vLLM Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Wed, 10 Dec 2025 08:33:47 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<p>调研目标
+vLLM
+e2e_request_latency_seconds
+vllm:time_to_first_token_seconds
+vllm:num_requests_running
+vllm:num_requests_waiting
+vllm:time_per_output_token_seconds
+vllm:gpu_cache_usage_perc
+vllm:request_inference_time_seconds</p>
+<h2 id="vllm" class="headerLink">
+    <a href="#vllm" class="header-mark"></a>3 vLLM</h2><h3 id="metrics-计算详解-vllm-v1-engine" class="headerLink">
+    <a href="#metrics-%e8%ae%a1%e7%ae%97%e8%af%a6%e8%a7%a3-vllm-v1-engine" class="header-mark"></a>3.1 Metrics 计算详解 (vLLM V1 Engine)</h3><p>以下分析基于 vLLM V1 引擎架构 (<code>vllm/v1</code>)，vLLM 版本为 0.11.0， 发布于 2025 年 10月 3日。</p>]]></description></item></channel></rss>

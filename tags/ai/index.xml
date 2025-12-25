@@ -1,3 +1,70 @@
-<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>AI - tag - 小饭的技术站</title><link>https://www.65811786.xyz/tags/ai/</link><description>AI - tag - 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh</language><lastBuildDate>Wed, 02 Jul 2025 15:19:59 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/tags/ai/" rel="self" type="application/rss+xml"/><item><title>vLLM和SGLang开启Function Call</title><link>https://www.65811786.xyz/posts/ai/mcp/vllm%E5%92%8Csglang%E5%BC%80%E5%90%AFfunction-call/</link><pubDate>Wed, 02 Jul 2025 15:19:59 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/mcp/vllm%E5%92%8Csglang%E5%BC%80%E5%90%AFfunction-call/</guid><description>&lt;p>Function Call (或 Tool Calling) 是构建高级 AI Agent 和大语言模型（LLM）应用的核心能力。它赋予模型与外部工具和服务交互的能力，从而极大扩展了其应用边界。作为业界领先的高性能推理框架，vLLM 和 SGLang 均内置了对 Function Call 的支持。&lt;/p></description></item><item><title>构建 MCP 驱动的 AI Agent：核心能力与工作流详解</title><link>https://www.65811786.xyz/posts/ai/mcp/%E6%9E%84%E5%BB%BA-mcp-%E9%A9%B1%E5%8A%A8%E7%9A%84-ai-agent%E6%A0%B8%E5%BF%83%E8%83%BD%E5%8A%9B%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E8%AF%A6%E8%A7%A3/</link><pubDate>Fri, 13 Jun 2025 10:37:50 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/mcp/%E6%9E%84%E5%BB%BA-mcp-%E9%A9%B1%E5%8A%A8%E7%9A%84-ai-agent%E6%A0%B8%E5%BF%83%E8%83%BD%E5%8A%9B%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E8%AF%A6%E8%A7%A3/</guid><description><![CDATA[<h2 id="mcp-装饰器使用说明构建-agent-的核心能力" class="headerLink">
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>AI - 标签 - 小饭的技术站</title><link>https://www.65811786.xyz/tags/ai/</link><description>AI - 标签 - 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Thu, 11 Dec 2025 16:12:40 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/tags/ai/" rel="self" type="application/rss+xml"/><item><title>SGLang Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Thu, 11 Dec 2025 16:12:40 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<p>调研目标
+SGLang
+e2e_request_latency_seconds
+sglang:time_to_first_token_seconds
+sglang:num_running_reqs
+sglang:num_queue_reqs
+sglang:time_per_output_token_seconds</p>
+<h2 id="sglang" class="headerLink">
+    <a href="#sglang" class="header-mark"></a>3 SGLang</h2><h3 id="metrics-计算详解-sglang-runtime" class="headerLink">
+    <a href="#metrics-%e8%ae%a1%e7%ae%97%e8%af%a6%e8%a7%a3-sglang-runtime" class="header-mark"></a>3.1 Metrics 计算详解 (SGLang Runtime)</h3><p>以下分析基于 SGLang Runtime (SRT) 架构。SGLang 版本为 0.5.4， 发布于 2025 年 10月 26日。</p>
+<h4 id="1-v1chatcompletions-接口调用流程图" class="headerLink">
+    <a href="#1-v1chatcompletions-%e6%8e%a5%e5%8f%a3%e8%b0%83%e7%94%a8%e6%b5%81%e7%a8%8b%e5%9b%be" class="header-mark"></a>3.1.1 1. /v1/chat/completions 接口调用流程图</h4><p><strong>Metrics 路由注册与采集机制</strong>
+在 <code>launch_server</code> 启动 FastAPI 服务时，<code>lifespan</code> 函数调用 <code>add_prometheus_middleware</code> (<code>sglang/srt/utils/common.py</code>) 注册 <code>/metrics</code> 路由。该路由由 <code>prometheus_client</code> 的 ASGI App 处理，通过 <code>MultiProcessCollector</code> 实现多进程指标聚合。</p>]]></description></item><item><title>vLLM Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Wed, 10 Dec 2025 08:33:47 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<p>调研目标
+vLLM
+e2e_request_latency_seconds
+vllm:time_to_first_token_seconds
+vllm:num_requests_running
+vllm:num_requests_waiting
+vllm:time_per_output_token_seconds
+vllm:gpu_cache_usage_perc
+vllm:request_inference_time_seconds</p>
+<h2 id="vllm" class="headerLink">
+    <a href="#vllm" class="header-mark"></a>3 vLLM</h2><h3 id="metrics-计算详解-vllm-v1-engine" class="headerLink">
+    <a href="#metrics-%e8%ae%a1%e7%ae%97%e8%af%a6%e8%a7%a3-vllm-v1-engine" class="header-mark"></a>3.1 Metrics 计算详解 (vLLM V1 Engine)</h3><p>以下分析基于 vLLM V1 引擎架构 (<code>vllm/v1</code>)，vLLM 版本为 0.11.0， 发布于 2025 年 10月 3日。</p>]]></description></item><item><title>NIM-SDK快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/nim-sdk%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Tue, 14 Oct 2025 10:37:59 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/nim-sdk%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<h2 id="通用llm容器nim-sdk项目结构总览" class="headerLink">
+    <a href="#%e9%80%9a%e7%94%a8llm%e5%ae%b9%e5%99%a8nim-sdk%e9%a1%b9%e7%9b%ae%e7%bb%93%e6%9e%84%e6%80%bb%e8%a7%88" class="header-mark"></a>13 通用LLM容器nim-sdk项目结构总览</h2><h2 id="1-项目结构及功能" class="headerLink">
+    <a href="#1-%e9%a1%b9%e7%9b%ae%e7%bb%93%e6%9e%84%e5%8f%8a%e5%8a%9f%e8%83%bd" class="header-mark"></a>14 1. 项目结构及功能</h2><h3 id="11-核心目录结构" class="headerLink">
+    <a href="#11-%e6%a0%b8%e5%bf%83%e7%9b%ae%e5%bd%95%e7%bb%93%e6%9e%84" class="header-mark"></a>14.1 1.1 核心目录结构</h3><div class="code-block highlight is-closed show-line-numbers  tw-group tw-my-2">
+  <div class="
+    
+    tw-flex 
+    tw-flex-row
+    tw-flex-1 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        code-block-button
+        tw-mx-2 
+        tw-flex
+        tw-flex-row
+        tw-flex-1"
+      aria-hidden="true">
+          <div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div>
+          <p class="tw-select-none !tw-my-1">text</p>]]></description></item><item><title>NIM 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/nim/</link><pubDate>Sat, 11 Oct 2025 16:24:56 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/nim/</guid><description><![CDATA[<h2 id="nvcr-账号注册与镜像拉取" class="headerLink">
+    <a href="#nvcr-%e8%b4%a6%e5%8f%b7%e6%b3%a8%e5%86%8c%e4%b8%8e%e9%95%9c%e5%83%8f%e6%8b%89%e5%8f%96" class="header-mark"></a>15 NVCR 账号注册与镜像拉取</h2><p>参考以下<a href="https://docs.nvidia.com/ngc/latest/ngc-catalog-user-guide.html#account-signup" target="_blank" rel="noopener noreferrer">地址</a>注册NVCR账号
+获取API后登录</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    
+    tw-flex 
+    tw-flex-row
+    tw-flex-1 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        code-block-button
+        tw-mx-2 
+        tw-flex
+        tw-flex-row
+        tw-flex-1"
+      aria-hidden="true">
+          <div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div>
+          <p class="tw-select-none !tw-my-1">bash</p>]]></description></item><item><title>vLLM和SGLang开启Function Call</title><link>https://www.65811786.xyz/posts/ai/mcp/vllm%E5%92%8Csglang%E5%BC%80%E5%90%AFfunction-call/</link><pubDate>Wed, 02 Jul 2025 15:19:59 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/mcp/vllm%E5%92%8Csglang%E5%BC%80%E5%90%AFfunction-call/</guid><description>&lt;p>Function Call (或 Tool Calling) 是构建高级 AI Agent 和大语言模型（LLM）应用的核心能力。它赋予模型与外部工具和服务交互的能力，从而极大扩展了其应用边界。作为业界领先的高性能推理框架，vLLM 和 SGLang 均内置了对 Function Call 的支持。&lt;/p></description></item><item><title>构建 MCP 驱动的 AI Agent：核心能力与工作流详解</title><link>https://www.65811786.xyz/posts/ai/mcp/%E6%9E%84%E5%BB%BA-mcp-%E9%A9%B1%E5%8A%A8%E7%9A%84-ai-agent%E6%A0%B8%E5%BF%83%E8%83%BD%E5%8A%9B%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E8%AF%A6%E8%A7%A3/</link><pubDate>Fri, 13 Jun 2025 10:37:50 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/mcp/%E6%9E%84%E5%BB%BA-mcp-%E9%A9%B1%E5%8A%A8%E7%9A%84-ai-agent%E6%A0%B8%E5%BF%83%E8%83%BD%E5%8A%9B%E4%B8%8E%E5%B7%A5%E4%BD%9C%E6%B5%81%E8%AF%A6%E8%A7%A3/</guid><description><![CDATA[<h2 id="mcp-装饰器使用说明构建-agent-的核心能力" class="headerLink">
     <a href="#mcp-%e8%a3%85%e9%a5%b0%e5%99%a8%e4%bd%bf%e7%94%a8%e8%af%b4%e6%98%8e%e6%9e%84%e5%bb%ba-agent-%e7%9a%84%e6%a0%b8%e5%bf%83%e8%83%bd%e5%8a%9b" class="header-mark"></a>1 MCP 装饰器使用说明：构建 Agent 的核心能力</h2><p>MCP (Model Context Protocol) 提供了三个核心装饰器来定义服务器能力：<code>@mcp.tool</code>、<code>@mcp.resource</code> 和 <code>@mcp.prompt</code>。这些装饰器是构建功能强大、标准化的 AI Agent 服务端的基础。</p>]]></description></item><item><title>MCP 快速开始</title><link>https://www.65811786.xyz/posts/ai/mcp/mcp-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Wed, 11 Jun 2025 10:09:51 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/mcp/mcp-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<h2 id="概述" class="headerLink">
     <a href="#%e6%a6%82%e8%bf%b0" class="header-mark"></a>1 概述</h2><p>模型上下文协议（Model Context Protocol，MCP）是一种专为大型语言模型（LLM）设计的标准化协议，它允许LLM以安全、一致的方式与外部系统（如API、数据库、本地文件等）进行交互。MCP常被比作&quot;AI的USB-C接口&quot;，旨在提供一种统一的方式来连接LLM与它们可以利用的各种资源和工具。</p>]]></description></item></channel></rss>

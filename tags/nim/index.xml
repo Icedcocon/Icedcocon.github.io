@@ -1,0 +1,45 @@
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>NIM - 标签 - 小饭的技术站</title><link>https://www.65811786.xyz/tags/nim/</link><description>NIM - 标签 - 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Tue, 14 Oct 2025 10:37:59 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/tags/nim/" rel="self" type="application/rss+xml"/><item><title>NIM-SDK快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/nim-sdk%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Tue, 14 Oct 2025 10:37:59 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/nim-sdk%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<h2 id="通用llm容器nim-sdk项目结构总览" class="headerLink">
+    <a href="#%e9%80%9a%e7%94%a8llm%e5%ae%b9%e5%99%a8nim-sdk%e9%a1%b9%e7%9b%ae%e7%bb%93%e6%9e%84%e6%80%bb%e8%a7%88" class="header-mark"></a>13 通用LLM容器nim-sdk项目结构总览</h2><h2 id="1-项目结构及功能" class="headerLink">
+    <a href="#1-%e9%a1%b9%e7%9b%ae%e7%bb%93%e6%9e%84%e5%8f%8a%e5%8a%9f%e8%83%bd" class="header-mark"></a>14 1. 项目结构及功能</h2><h3 id="11-核心目录结构" class="headerLink">
+    <a href="#11-%e6%a0%b8%e5%bf%83%e7%9b%ae%e5%bd%95%e7%bb%93%e6%9e%84" class="header-mark"></a>14.1 1.1 核心目录结构</h3><div class="code-block highlight is-closed show-line-numbers  tw-group tw-my-2">
+  <div class="
+    
+    tw-flex 
+    tw-flex-row
+    tw-flex-1 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        code-block-button
+        tw-mx-2 
+        tw-flex
+        tw-flex-row
+        tw-flex-1"
+      aria-hidden="true">
+          <div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div>
+          <p class="tw-select-none !tw-my-1">text</p>]]></description></item><item><title>NIM 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/nim/</link><pubDate>Sat, 11 Oct 2025 16:24:56 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/nim/</guid><description><![CDATA[<h2 id="nvcr-账号注册与镜像拉取" class="headerLink">
+    <a href="#nvcr-%e8%b4%a6%e5%8f%b7%e6%b3%a8%e5%86%8c%e4%b8%8e%e9%95%9c%e5%83%8f%e6%8b%89%e5%8f%96" class="header-mark"></a>15 NVCR 账号注册与镜像拉取</h2><p>参考以下<a href="https://docs.nvidia.com/ngc/latest/ngc-catalog-user-guide.html#account-signup" target="_blank" rel="noopener noreferrer">地址</a>注册NVCR账号
+获取API后登录</p>
+<div class="code-block highlight is-open show-line-numbers  tw-group tw-my-2">
+  <div class="
+    
+    tw-flex 
+    tw-flex-row
+    tw-flex-1 
+    tw-justify-between 
+    tw-w-full tw-bg-bgColor-secondary
+    ">      
+    <button 
+      class="
+        code-block-button
+        tw-mx-2 
+        tw-flex
+        tw-flex-row
+        tw-flex-1"
+      aria-hidden="true">
+          <div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div>
+          <p class="tw-select-none !tw-my-1">bash</p>]]></description></item></channel></rss>

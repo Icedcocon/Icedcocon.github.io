@@ -1,0 +1,919 @@
+<!doctype html><html lang=zh-CN><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=robots content="noodp"><title>vLLM Metrics 快速开始 - 小饭的技术站</title><meta name=Description content><meta property="og:url" content="https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/"><meta property="og:site_name" content="小饭的技术站"><meta property="og:title" content="vLLM Metrics 快速开始"><meta property="og:description" content="调研目标 vLLM e2e_request_latency_seconds vllm:time_to_first_token_seconds vllm:num_requests_running vllm:num_requests_waiting vllm:time_per_output_token_seconds vllm:gpu_cache_usage_perc vllm:request_inference_time_seconds
+1 vLLM 1.1 Metrics 计算详解 (vLLM V1 Engine)以下分析基于 vLLM V1 引擎架构 (vllm/v1)，vLLM 版本为 0.11.0， 发布于 2025 年 10月 3日。"><meta property="og:locale" content="zh_CN"><meta property="og:type" content="article"><meta property="article:section" content="posts"><meta property="article:published_time" content="2025-12-10T08:33:47+08:00"><meta property="article:modified_time" content="2025-12-10T08:33:47+08:00"><meta property="article:tag" content="AI"><meta property="article:tag" content="VLLM"><meta property="article:tag" content="Metrics"><meta name=twitter:card content="summary"><meta name=twitter:title content="vLLM Metrics 快速开始"><meta name=twitter:description content="调研目标 vLLM e2e_request_latency_seconds vllm:time_to_first_token_seconds vllm:num_requests_running vllm:num_requests_waiting vllm:time_per_output_token_seconds vllm:gpu_cache_usage_perc vllm:request_inference_time_seconds
+1 vLLM 1.1 Metrics 计算详解 (vLLM V1 Engine)以下分析基于 vLLM V1 引擎架构 (vllm/v1)，vLLM 版本为 0.11.0， 发布于 2025 年 10月 3日。"><meta name=application-name content="小饭的技术站"><meta name=apple-mobile-web-app-title content="小饭的技术站"><meta name=theme-color content="#f8f8f8"><link rel="shortcut icon" type=image/x-icon href=/favicon.ico><link rel=icon type=image/png sizes=32x32 href=/favicon-32x32.png><link rel=icon type=image/png sizes=16x16 href=/favicon-16x16.png><link rel=apple-touch-icon sizes=180x180 href=/apple-touch-icon.png><link rel=canonical href=https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/><link rel=prev href=https://www.65811786.xyz/posts/python/logging-%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8/><link rel=next href=https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/><link rel=stylesheet href=/css/main.min.css><link rel=stylesheet href=/css/style.min.css><script type=application/ld+json>{"@context":"https://schema.org","@type":"BlogPosting","headline":"vLLM Metrics 快速开始","inLanguage":"zh-CN","mainEntityOfPage":{"@type":"WebPage","@id":"https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/"},"genre":"posts","keywords":["AI","vLLM","Metrics"],"wordcount":6337,"url":"https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/","datePublished":"2025-12-10T08:33:47+08:00","dateModified":"2025-12-10T08:33:47+08:00","publisher":{"@type":"Organization","name":"小饭"},"author":{"@type":"Person","name":"小饭","url":"https://www.65811786.xyz/"},"description":""}</script></head><body data-instant-intensity=viewport class="tw-flex tw-min-h-screen tw-flex-col"><script>function setTheme(e){document.body.setAttribute("theme",e),document.documentElement.className=e,document.documentElement.style.setProperty("color-scheme",e==="light"?"light":"dark"),e==="light"?document.documentElement.classList.remove("tw-dark"):document.documentElement.classList.add("tw-dark"),window.theme=e,window.isDark=window.theme!=="light"}function saveTheme(e){window.localStorage&&localStorage.setItem("theme",e)}function getMeta(e){const t=document.getElementsByTagName("meta");for(let n=0;n<t.length;n++)if(t[n].getAttribute("name")===e)return t[n];return""}if(window.localStorage&&localStorage.getItem("theme")){let e=localStorage.getItem("theme");e==="light"||e==="dark"?setTheme(e):setTheme(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}else"auto"==="light"||"auto"==="dark"?(setTheme("auto"),saveTheme("auto")):(saveTheme("auto"),setTheme(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"));let metaColors={light:"#f8f8f8",dark:"#161b22"};getMeta("theme-color").content=metaColors[document.body.getAttribute("theme")],window.switchThemeEventSet=new Set</script><div id=back-to-top></div><div id=mask></div><header class="desktop print:!tw-hidden" id=header-desktop><div class=header-wrapper><div class=header-title><a href=/ title=小饭的技术站><img class="tw-inline tw-align-text-bottom tw-mr-1" src=/img/logo.jpg alt=小饭技术站 height=32 width=32>小饭技术站</a></div><div class=menu><div class=menu-inner><a class=menu-item href=/posts><span style=display:inline-block;vertical-align:middle;margin-right:8px><img src=/img/menu/posts.png width=16 height=16></span> 文章 </a><a class=menu-item href=/categories><span style=display:inline-block;vertical-align:middle;margin-right:8px><img src=/img/menu/categories.png width=16 height=16></span> 分类 </a><a class=menu-item href=/tags><span style=display:inline-block;vertical-align:middle;margin-right:8px><img src=/img/menu/tags.png width=16 height=16></span> 标签 </a><a class=menu-item href=https://github.com/HEIGE-PCloud/DoIt title=GitHub rel="noopener noreferrer" target=_blank><svg class="icon" viewBox="0 0 496 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6.0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6.0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3.0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1.0-6.2-.3-40.4-.3-61.4.0.0-70 15-84.7-29.8.0.0-11.4-29.1-27.8-36.6.0.0-22.9-15.7 1.6-15.4.0.0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5.0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9.0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4.0 33.7-.3 75.4-.3 83.6.0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6.0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9.0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg> </a><span class="menu-item delimiter"></span><span class="menu-item search" id=search-desktop>
+<input type=text placeholder="search here" id=search-input-desktop>
+<button class="search-button search-toggle" id=search-toggle-desktop title=搜索>
+<svg class="icon" viewBox="0 0 512 512"><path d="M505 442.7 405.3 343c-4.5-4.5-10.6-7-17-7H372c27.6-35.3 44-79.7 44-128C416 93.1 322.9.0 208 0S0 93.1.0 208s93.1 208 208 208c48.3.0 92.7-16.4 128-44v16.3c0 6.4 2.5 12.5 7 17l99.7 99.7c9.4 9.4 24.6 9.4 33.9.0l28.3-28.3c9.4-9.4 9.4-24.6.1-34zM208 336c-70.7.0-128-57.2-128-128 0-70.7 57.2-128 128-128 70.7.0 128 57.2 128 128 0 70.7-57.2 128-128 128z"/></svg>
+</button>
+<button class="search-button search-clear" id=search-clear-desktop title=清空>
+<svg class="icon" viewBox="0 0 512 512"><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm121.6 313.1c4.7 4.7 4.7 12.3.0 17L338 377.6c-4.7 4.7-12.3 4.7-17 0L256 312l-65.1 65.6c-4.7 4.7-12.3 4.7-17 0L134.4 338c-4.7-4.7-4.7-12.3.0-17l65.6-65-65.6-65.1c-4.7-4.7-4.7-12.3.0-17l39.6-39.6c4.7-4.7 12.3-4.7 17 0l65 65.7 65.1-65.6c4.7-4.7 12.3-4.7 17 0l39.6 39.6c4.7 4.7 4.7 12.3.0 17L312 256l65.6 65.1z"/></svg>
+</button>
+<span class="search-button search-loading tw-animate-spin" id=search-loading-desktop><svg class="icon" viewBox="0 0 512 512"><path d="M304 48c0 26.51-21.49 48-48 48s-48-21.49-48-48 21.49-48 48-48 48 21.49 48 48zm-48 368c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48-21.49-48-48-48zm208-208c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48-21.49-48-48-48zM96 256c0-26.51-21.49-48-48-48S0 229.49.0 256s21.49 48 48 48 48-21.49 48-48zm12.922 99.078c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48c0-26.509-21.491-48-48-48zm294.156.0c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48c0-26.509-21.49-48-48-48zM108.922 60.922c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48-21.491-48-48-48z"/></svg>
+</span></span><button class="menu-item theme-switch" aria-label=切换主题>
+<svg class="icon" viewBox="0 0 512 512"><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705.0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg></button></div></div></div></header><header class="mobile print:!tw-hidden" id=header-mobile><div class=header-container><div class=header-wrapper><div class=header-title><a href=/ title=小饭的技术站><img class="tw-inline tw-align-text-bottom tw-mr-1" src=/img/logo.jpg alt=小饭技术站 height=32 width=32>小饭技术站</a></div><div class=menu-toggle id=menu-toggle-mobile><span></span><span></span><span></span></div></div><div class=menu id=menu-mobile><div class=search-wrapper><div class="search mobile" id=search-mobile><input type=text placeholder="search here" id=search-input-mobile>
+<button class="search-button search-toggle tw-h-10" id=search-toggle-mobile title=搜索>
+<svg class="icon" viewBox="0 0 512 512"><path d="M505 442.7 405.3 343c-4.5-4.5-10.6-7-17-7H372c27.6-35.3 44-79.7 44-128C416 93.1 322.9.0 208 0S0 93.1.0 208s93.1 208 208 208c48.3.0 92.7-16.4 128-44v16.3c0 6.4 2.5 12.5 7 17l99.7 99.7c9.4 9.4 24.6 9.4 33.9.0l28.3-28.3c9.4-9.4 9.4-24.6.1-34zM208 336c-70.7.0-128-57.2-128-128 0-70.7 57.2-128 128-128 70.7.0 128 57.2 128 128 0 70.7-57.2 128-128 128z"/></svg>
+</button>
+<button class="search-button search-clear tw-h-fit" id=search-clear-mobile title=清空>
+<svg class="icon" viewBox="0 0 512 512"><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm121.6 313.1c4.7 4.7 4.7 12.3.0 17L338 377.6c-4.7 4.7-12.3 4.7-17 0L256 312l-65.1 65.6c-4.7 4.7-12.3 4.7-17 0L134.4 338c-4.7-4.7-4.7-12.3.0-17l65.6-65-65.6-65.1c-4.7-4.7-4.7-12.3.0-17l39.6-39.6c4.7-4.7 12.3-4.7 17 0l65 65.7 65.1-65.6c4.7-4.7 12.3-4.7 17 0l39.6 39.6c4.7 4.7 4.7 12.3.0 17L312 256l65.6 65.1z"/></svg>
+</button>
+<span class="search-button search-loading tw-animate-spin" id=search-loading-mobile><svg class="icon" viewBox="0 0 512 512"><path d="M304 48c0 26.51-21.49 48-48 48s-48-21.49-48-48 21.49-48 48-48 48 21.49 48 48zm-48 368c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48-21.49-48-48-48zm208-208c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48-21.49-48-48-48zM96 256c0-26.51-21.49-48-48-48S0 229.49.0 256s21.49 48 48 48 48-21.49 48-48zm12.922 99.078c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48c0-26.509-21.491-48-48-48zm294.156.0c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48c0-26.509-21.49-48-48-48zM108.922 60.922c-26.51.0-48 21.49-48 48s21.49 48 48 48 48-21.49 48-48-21.491-48-48-48z"/></svg></span></div><button class=search-cancel id=search-cancel-mobile>
+取消</button></div><a class=menu-item href=/posts title><span style=display:inline-block;vertical-align:middle;margin-right:8px><img src=/img/menu/posts.png width=16 height=16></span>文章</a><a class=menu-item href=/categories title><span style=display:inline-block;vertical-align:middle;margin-right:8px><img src=/img/menu/categories.png width=16 height=16></span>分类</a><a class=menu-item href=/tags title><span style=display:inline-block;vertical-align:middle;margin-right:8px><img src=/img/menu/tags.png width=16 height=16></span>标签</a><a class=menu-item href=https://github.com/HEIGE-PCloud/DoIt title=GitHub rel="noopener noreferrer" target=_blank><svg class="icon" viewBox="0 0 496 512"><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6.0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6.0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3.0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1.0-6.2-.3-40.4-.3-61.4.0.0-70 15-84.7-29.8.0.0-11.4-29.1-27.8-36.6.0.0-22.9-15.7 1.6-15.4.0.0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5.0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9.0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4.0 33.7-.3 75.4-.3 83.6.0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6.0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9.0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></a><button class="menu-item theme-switch tw-w-full" aria-label=切换主题>
+<svg class="icon" viewBox="0 0 512 512"><path d="M8 256c0 136.966 111.033 248 248 248s248-111.034 248-248S392.966 8 256 8 8 119.033 8 256zm248 184V72c101.705.0 184 82.311 184 184 0 101.705-82.311 184-184 184z"/></svg></button></div></div></header><div class="search-dropdown desktop"><div id=search-dropdown-desktop></div></div><div class="search-dropdown mobile"><div id=search-dropdown-mobile></div></div><main class="tw-mx-4 tw-flex-1"><div class="toc print:!tw-hidden" id=toc-auto><h2 class=toc-title>目录</h2><div class="toc-content always-active" id=toc-content-auto><nav id=TableOfContents><ul><li><a href=#vllm>vLLM</a><ul><li><a href=#metrics-计算详解-vllm-v1-engine>Metrics 计算详解 (vLLM V1 Engine)</a><ul><li><a href=#1-v1chatcompletions-接口调用流程图>1. /v1/chat/completions 接口调用流程图</a></li><li><a href=#2-time-related-metrics-计算逻辑-vllmv1metricsstatspy>2. Time-Related Metrics 计算逻辑 (vllm/v1/metrics/stats.py)</a><ul><li><a href=#vllme2e_request_latency_seconds>vllm:e2e_request_latency_seconds</a></li><li><a href=#vllmtime_to_first_token_seconds-ttft>vllm:time_to_first_token_seconds (TTFT)</a></li><li><a href=#vllmrequest_inference_time_seconds>vllm:request_inference_time_seconds</a></li><li><a href=#vllmtime_per_output_token_seconds>vllm:time_per_output_token_seconds</a></li></ul></li><li><a href=#3-capacity--other-metrics-计算逻辑-vllmv1coreschedschedulerpy>3. Capacity & Other Metrics 计算逻辑 (vllm/v1/core/sched/scheduler.py)</a><ul><li><a href=#vllmnum_requests_running>vllm:num_requests_running</a></li><li><a href=#vllmnum_requests_waiting>vllm:num_requests_waiting</a></li><li><a href=#vllmgpu_cache_usage_perc>vllm:gpu_cache_usage_perc</a></li></ul></li><li><a href=#4指标统计函数详解>4.指标统计函数详解</a><ul><li><a href=#update_from_output>update_from_output</a></li><li><a href=#update_from_finished_request>update_from_finished_request</a></li><li><a href=#schedulerupdate_from_output---schedulermake_stats>Scheduler.update_from_output -> Scheduler.make_stats</a></li></ul></li><li><a href=#5指标梳理>5.指标梳理</a><ul><li><a href=#1-system-status--throughput-系统状态与吞吐>1. System Status & Throughput (系统状态与吞吐)</a></li><li><a href=#2-request-performance--stats-请求性能与统计>2. Request Performance & Stats (请求性能与统计)</a></li><li><a href=#3-cache--resources-缓存与资源>3. Cache & Resources (缓存与资源)</a></li><li><a href=#4-http-metrics-api-server>4. HTTP Metrics (API Server)</a></li></ul></li></ul></li><li><a href=#vllm-v1-核心类详解>vLLM V1 核心类详解</a><ul><li><a href=#1-outputprocessor>1. OutputProcessor</a></li><li><a href=#2-openaiserving-及子类>2. OpenAIServing (及子类)</a></li><li><a href=#3-asyncllm>3. AsyncLLM</a></li><li><a href=#4-iterationstats>4. IterationStats</a></li><li><a href=#5-scheduler>5. Scheduler</a></li><li><a href=#6-enginecore>6. EngineCore</a></li></ul></li></ul></li></ul></nav></div></div><dialog id=toc-dialog class="tw-max-w-full tw-w-full tw-max-h-full tw-h-full tw-ml-16"><div class="toc tw-mx-4 tw-max-w-full"><h2 class="tw-mx-0 tw-my-6 tw-uppercase tw-text-2xl">目录</h2><div class=toc-content><nav id=TableOfContents><ul><li><a href=#vllm>vLLM</a><ul><li><a href=#metrics-计算详解-vllm-v1-engine>Metrics 计算详解 (vLLM V1 Engine)</a><ul><li><a href=#1-v1chatcompletions-接口调用流程图>1. /v1/chat/completions 接口调用流程图</a></li><li><a href=#2-time-related-metrics-计算逻辑-vllmv1metricsstatspy>2. Time-Related Metrics 计算逻辑 (vllm/v1/metrics/stats.py)</a><ul><li><a href=#vllme2e_request_latency_seconds>vllm:e2e_request_latency_seconds</a></li><li><a href=#vllmtime_to_first_token_seconds-ttft>vllm:time_to_first_token_seconds (TTFT)</a></li><li><a href=#vllmrequest_inference_time_seconds>vllm:request_inference_time_seconds</a></li><li><a href=#vllmtime_per_output_token_seconds>vllm:time_per_output_token_seconds</a></li></ul></li><li><a href=#3-capacity--other-metrics-计算逻辑-vllmv1coreschedschedulerpy>3. Capacity & Other Metrics 计算逻辑 (vllm/v1/core/sched/scheduler.py)</a><ul><li><a href=#vllmnum_requests_running>vllm:num_requests_running</a></li><li><a href=#vllmnum_requests_waiting>vllm:num_requests_waiting</a></li><li><a href=#vllmgpu_cache_usage_perc>vllm:gpu_cache_usage_perc</a></li></ul></li><li><a href=#4指标统计函数详解>4.指标统计函数详解</a><ul><li><a href=#update_from_output>update_from_output</a></li><li><a href=#update_from_finished_request>update_from_finished_request</a></li><li><a href=#schedulerupdate_from_output---schedulermake_stats>Scheduler.update_from_output -> Scheduler.make_stats</a></li></ul></li><li><a href=#5指标梳理>5.指标梳理</a><ul><li><a href=#1-system-status--throughput-系统状态与吞吐>1. System Status & Throughput (系统状态与吞吐)</a></li><li><a href=#2-request-performance--stats-请求性能与统计>2. Request Performance & Stats (请求性能与统计)</a></li><li><a href=#3-cache--resources-缓存与资源>3. Cache & Resources (缓存与资源)</a></li><li><a href=#4-http-metrics-api-server>4. HTTP Metrics (API Server)</a></li></ul></li></ul></li><li><a href=#vllm-v1-核心类详解>vLLM V1 核心类详解</a><ul><li><a href=#1-outputprocessor>1. OutputProcessor</a></li><li><a href=#2-openaiserving-及子类>2. OpenAIServing (及子类)</a></li><li><a href=#3-asyncllm>3. AsyncLLM</a></li><li><a href=#4-iterationstats>4. IterationStats</a></li><li><a href=#5-scheduler>5. Scheduler</a></li><li><a href=#6-enginecore>6. EngineCore</a></li></ul></li></ul></li></ul></nav></div></div></dialog><script>document.getElementsByTagName("main")[0].setAttribute("autoTOC","true")</script><article class="page single print:!tw-w-full print:!tw-max-w-none print:!tw-m-0 print:!tw-p-0"><h1 class=single-title data-pagefind-meta=date:2025-12-10 data-pagefind-body>vLLM Metrics 快速开始</h1><div class=post-meta><div class=post-meta-line><span class=post-author><svg class="icon" viewBox="0 0 496 512"><path d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 96c48.6.0 88 39.4 88 88s-39.4 88-88 88-88-39.4-88-88 39.4-88 88-88zm0 344c-58.7.0-111.3-26.6-146.5-68.2 18.8-35.4 55.6-59.8 98.5-59.8 2.4.0 4.8.4 7.1 1.1 13 4.2 26.6 6.9 40.9 6.9s28-2.7 40.9-6.9c2.3-.7 4.7-1.1 7.1-1.1 42.9.0 79.7 24.4 98.5 59.8C359.3 421.4 306.7 448 248 448z"/></svg><a href=https://www.65811786.xyz/ title=Author target=_blank rel="noopener noreferrer author" class=author>小饭</a>
+</span>&nbsp;<span class=post-category>收录于 </span>&nbsp;<span class=post-category>类别 <a href=/categories/ai/><svg class="icon" viewBox="0 0 512 512"><path d="M464 128H272l-54.63-54.63c-6-6-14.14-9.37-22.63-9.37H48C21.49 64 0 85.49.0 112v288c0 26.51 21.49 48 48 48h416c26.51.0 48-21.49 48-48V176c0-26.51-21.49-48-48-48zm0 272H48V112h140.12l54.63 54.63c6 6 14.14 9.37 22.63 9.37H464v224z"/></svg>AI</a></span>&nbsp;<span class=post-category>和</span>&nbsp;<span class=post-series>系列 <a href=/series/><svg class="icon" viewBox="0 0 512 512"><path d="M464 32H48C21.49 32 0 53.49.0 80v352c0 26.51 21.49 48 48 48h416c26.51.0 48-21.49 48-48V80c0-26.51-21.49-48-48-48zm-6 4e2H54a6 6 0 01-6-6V86a6 6 0 016-6h404a6 6 0 016 6v340a6 6 0 01-6 6zm-42-92v24c0 6.627-5.373 12-12 12H204c-6.627.0-12-5.373-12-12v-24c0-6.627 5.373-12 12-12h2e2c6.627.0 12 5.373 12 12zm0-96v24c0 6.627-5.373 12-12 12H204c-6.627.0-12-5.373-12-12v-24c0-6.627 5.373-12 12-12h2e2c6.627.0 12 5.373 12 12zm0-96v24c0 6.627-5.373 12-12 12H204c-6.627.0-12-5.373-12-12v-24c0-6.627 5.373-12 12-12h2e2c6.627.0 12 5.373 12 12zm-252 12c0 19.882-16.118 36-36 36s-36-16.118-36-36 16.118-36 36-36 36 16.118 36 36zm0 96c0 19.882-16.118 36-36 36s-36-16.118-36-36 16.118-36 36-36 36 16.118 36 36zm0 96c0 19.882-16.118 36-36 36s-36-16.118-36-36 16.118-36 36-36 36 16.118 36 36z"/></svg>Series</a></span></div><div class=post-meta-line><svg class="icon" viewBox="0 0 448 512"><path d="M148 288h-40c-6.6.0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h40c6.6.0 12 5.4 12 12v40c0 6.6-5.4 12-12 12zm108-12v-40c0-6.6-5.4-12-12-12h-40c-6.6.0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6.0 12-5.4 12-12zm96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6.0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6.0 12-5.4 12-12zm-96 96v-40c0-6.6-5.4-12-12-12h-40c-6.6.0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6.0 12-5.4 12-12zm-96 0v-40c0-6.6-5.4-12-12-12h-40c-6.6.0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6.0 12-5.4 12-12zm192 0v-40c0-6.6-5.4-12-12-12h-40c-6.6.0-12 5.4-12 12v40c0 6.6 5.4 12 12 12h40c6.6.0 12-5.4 12-12zm96-260v352c0 26.5-21.5 48-48 48H48c-26.5.0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h48V12c0-6.6 5.4-12 12-12h40c6.6.0 12 5.4 12 12v52h128V12c0-6.6 5.4-12 12-12h40c6.6.0 12 5.4 12 12v52h48c26.5.0 48 21.5 48 48zm-48 346V160H48v298c0 3.3 2.7 6 6 6h340c3.3.0 6-2.7 6-6z"/></svg>&nbsp;<time datetime=2025-12-10>2025-12-10</time>&nbsp;<svg class="icon" viewBox="0 0 576 512"><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5.0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1.0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7.0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174 402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7-43.2-43.2c-4.1-4.1-10.8-4.1-14.8.0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg>&nbsp;<time datetime=2025-12-10>2025-12-10</time>&nbsp;<svg class="icon" viewBox="0 0 512 512"><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3.0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9.0l60.1 60.1c18.8 18.7 18.8 49.1.0 67.9zM284.2 99.8 21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3.0-17l-111-111c-4.8-4.7-12.4-4.7-17.1.0zM124.1 339.9c-5.5-5.5-5.5-14.3.0-19.8l154-154c5.5-5.5 14.3-5.5 19.8.0s5.5 14.3.0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8.0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg>&nbsp;约 6337 字&nbsp;
+<svg class="icon" viewBox="0 0 512 512"><path d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm0 448c-110.5.0-2e2-89.5-2e2-2e2S145.5 56 256 56s2e2 89.5 2e2 2e2-89.5 2e2-2e2 2e2zm61.8-104.4-84.9-61.7c-3.1-2.3-4.9-5.9-4.9-9.7V116c0-6.6 5.4-12 12-12h32c6.6.0 12 5.4 12 12v141.7l66.8 48.6c5.4 3.9 6.5 11.4 2.6 16.8L334.6 349c-3.9 5.3-11.4 6.5-16.8 2.6z"/></svg>&nbsp;预计阅读 28 分钟&nbsp;</div></div><div class="details toc print:!tw-block" id=toc-static kept><div class="details-summary toc-title"><span>目录</span>
+<span class=details-icon><svg class="icon" viewBox="0 0 256 512"><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9.0l-22.6-22.6c-9.4-9.4-9.4-24.6.0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6.0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9.0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span></div><div class="details-content toc-content" id=toc-content-static><nav id=TableOfContents><ul><li><a href=#vllm>vLLM</a><ul><li><a href=#metrics-计算详解-vllm-v1-engine>Metrics 计算详解 (vLLM V1 Engine)</a><ul><li><a href=#1-v1chatcompletions-接口调用流程图>1. /v1/chat/completions 接口调用流程图</a></li><li><a href=#2-time-related-metrics-计算逻辑-vllmv1metricsstatspy>2. Time-Related Metrics 计算逻辑 (vllm/v1/metrics/stats.py)</a><ul><li><a href=#vllme2e_request_latency_seconds>vllm:e2e_request_latency_seconds</a></li><li><a href=#vllmtime_to_first_token_seconds-ttft>vllm:time_to_first_token_seconds (TTFT)</a></li><li><a href=#vllmrequest_inference_time_seconds>vllm:request_inference_time_seconds</a></li><li><a href=#vllmtime_per_output_token_seconds>vllm:time_per_output_token_seconds</a></li></ul></li><li><a href=#3-capacity--other-metrics-计算逻辑-vllmv1coreschedschedulerpy>3. Capacity & Other Metrics 计算逻辑 (vllm/v1/core/sched/scheduler.py)</a><ul><li><a href=#vllmnum_requests_running>vllm:num_requests_running</a></li><li><a href=#vllmnum_requests_waiting>vllm:num_requests_waiting</a></li><li><a href=#vllmgpu_cache_usage_perc>vllm:gpu_cache_usage_perc</a></li></ul></li><li><a href=#4指标统计函数详解>4.指标统计函数详解</a><ul><li><a href=#update_from_output>update_from_output</a></li><li><a href=#update_from_finished_request>update_from_finished_request</a></li><li><a href=#schedulerupdate_from_output---schedulermake_stats>Scheduler.update_from_output -> Scheduler.make_stats</a></li></ul></li><li><a href=#5指标梳理>5.指标梳理</a><ul><li><a href=#1-system-status--throughput-系统状态与吞吐>1. System Status & Throughput (系统状态与吞吐)</a></li><li><a href=#2-request-performance--stats-请求性能与统计>2. Request Performance & Stats (请求性能与统计)</a></li><li><a href=#3-cache--resources-缓存与资源>3. Cache & Resources (缓存与资源)</a></li><li><a href=#4-http-metrics-api-server>4. HTTP Metrics (API Server)</a></li></ul></li></ul></li><li><a href=#vllm-v1-核心类详解>vLLM V1 核心类详解</a><ul><li><a href=#1-outputprocessor>1. OutputProcessor</a></li><li><a href=#2-openaiserving-及子类>2. OpenAIServing (及子类)</a></li><li><a href=#3-asyncllm>3. AsyncLLM</a></li><li><a href=#4-iterationstats>4. IterationStats</a></li><li><a href=#5-scheduler>5. Scheduler</a></li><li><a href=#6-enginecore>6. EngineCore</a></li></ul></li></ul></li></ul></nav></div></div><div class=content id=content data-pagefind-body><p>调研目标
+vLLM
+e2e_request_latency_seconds
+vllm:time_to_first_token_seconds
+vllm:num_requests_running
+vllm:num_requests_waiting
+vllm:time_per_output_token_seconds
+vllm:gpu_cache_usage_perc
+vllm:request_inference_time_seconds</p><h2 id=vllm class=headerLink><a href=#vllm class=header-mark></a>1 vLLM</h2><h3 id=metrics-计算详解-vllm-v1-engine class=headerLink><a href=#metrics-%e8%ae%a1%e7%ae%97%e8%af%a6%e8%a7%a3-vllm-v1-engine class=header-mark></a>1.1 Metrics 计算详解 (vLLM V1 Engine)</h3><p>以下分析基于 vLLM V1 引擎架构 (<code>vllm/v1</code>)，vLLM 版本为 0.11.0， 发布于 2025 年 10月 3日。</p><h4 id=1-v1chatcompletions-接口调用流程图 class=headerLink><a href=#1-v1chatcompletions-%e6%8e%a5%e5%8f%a3%e8%b0%83%e7%94%a8%e6%b5%81%e7%a8%8b%e5%9b%be class=header-mark></a>1.1.1 1. /v1/chat/completions 接口调用流程图</h4><pre class=mermaid>graph TD
+    %% 样式定义
+    classDef entry fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef async fill:#fff9c4,stroke:#fbc02d,stroke-width:2px;
+    classDef core fill:#ffebee,stroke:#c62828,stroke-width:2px;
+    classDef metric fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5;
+
+    subgraph "Entry Point (API Layer)"
+        A[api_server.py]:::entry -->|Route: /chat/completions| B[OpenAIServingChat]:::entry
+        B -->|create_chat_completion| C[AsyncLLM.generate]:::entry
+    end
+
+    subgraph "Async Client Layer (AsyncLLM)"
+        C -->|Submit Request| D[Input Queue]:::async
+        E[Output Handler Loop]:::async -->|Get Output| F{Has Output?}:::async
+        F -->|Yes| G[OutputProcessor.process_outputs]:::async
+        
+        G -->|Processing| H{Update Type?}:::async
+        H -->|New Token| I[Update Request State]:::async
+        H -->|Finished| J[Mark Finished]:::async
+    end
+
+    subgraph "Engine Core Layer (Background Process/Thread)"
+        K[EngineCore.step]:::core -->|1. Schedule| L[Scheduler.schedule]:::core
+        L -->|2. Execute| M[ModelExecutor.execute_model]:::core
+        M -->|3. Update| N[Scheduler.update_from_output]:::core
+        
+        N -->|4. Calculate Stats| O[Scheduler.make_stats]:::metric
+        O -->|Return| P[EngineCoreOutputs]:::core
+        P -.->|Async Return| E
+    end
+
+    subgraph "Metrics Calculation"
+        %% Time Metrics
+        G -.->|Pass IterationStats| Q[IterationStats]:::metric
+        I -->|If Prefill Done| R[update_from_output]:::metric
+        R -->|Calc| S(TTFT):::metric
+        
+        J -->|Request Done| T[update_from_finished_request]:::metric
+        T -->|Calc| U(E2E Latency / TPOT / Inference Time):::metric
+
+        %% Capacity Metrics
+        O -->|Calc| V(Num Running / Waiting / GPU Usage):::metric
+    end
+
+    %% 连接关系描述
+    D -.->|Pick up| K
+    
+    %% linkStyle default stroke-width:2px,fill:none,stroke:#333;
+</pre><h4 id=2-time-related-metrics-计算逻辑-vllmv1metricsstatspy class=headerLink><a href=#2-time-related-metrics-%e8%ae%a1%e7%ae%97%e9%80%bb%e8%be%91-vllmv1metricsstatspy class=header-mark></a>1.1.2 2. Time-Related Metrics 计算逻辑 (vllm/v1/metrics/stats.py)</h4><p>这些 Metrics 主要在 <code>vllm/v1/metrics/stats.py</code> 中的 <code>IterationStats</code> 类里计算。</p><h5 id=vllme2e_request_latency_seconds class=headerLink><a href=#vllme2e_request_latency_seconds class=header-mark></a>1.1.2.1 vllm:e2e_request_latency_seconds</h5><ul><li><strong>位置</strong>: <code>api_server.py</code> 接收请求 -> 请求结束 (FinishedRequest)</li><li><strong>计算公式</strong>: <code>now() - req_stats.arrival_time</code></li><li><strong>代码</strong>: <code>e2e_latency = self._time_since(req_stats.arrival_time)</code></li></ul><p><strong>调用栈</strong></p><ol><li>entrypoints/openai/api_server.py: chat / create_chat_completion (Entry Point)</li><li>entrypoints/openai/serving_chat.py: OpenAIServingChat.create_chat_completion</li><li>entrypoints/openai/serving_engine.py: OpenAIServing.generate</li><li>vllm/v1/engine/async_llm.py: AsyncLLM.generate (Submit Request)</li><li>vllm/v1/engine/async_llm.py: _run_output_handler (Output Loop)</li><li>vllm/v1/engine/output_processor.py: OutputProcessor.process_outputs</li><li>vllm/v1/engine/output_processor.py: _update_stats_from_finished</li><li>vllm/v1/metrics/stats.py: IterationStats.update_from_finished_request</li></ol><p><strong>代码实现逻辑</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-1 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># vllm/v1/metrics/stats.py</span>
+</span></span><span class=line><span class=cl><span class=k>def</span> <span class=nf>update_from_finished_request</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span> <span class=n>req_stats</span><span class=p>:</span> <span class=n>RequestStateStats</span><span class=p>,</span> <span class=o>...</span><span class=p>):</span>
+</span></span><span class=line><span class=cl>    <span class=c1># 从请求到达 (arrival_time) 到请求结束的总时间</span>
+</span></span><span class=line><span class=cl>    <span class=n>e2e_latency</span> <span class=o>=</span> <span class=bp>self</span><span class=o>.</span><span class=n>_time_since</span><span class=p>(</span><span class=n>req_stats</span><span class=o>.</span><span class=n>arrival_time</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=c1># ...</span></span></span></code></pre></div><h5 id=vllmtime_to_first_token_seconds-ttft class=headerLink><a href=#vllmtime_to_first_token_seconds-ttft class=header-mark></a>1.1.2.2 vllm:time_to_first_token_seconds (TTFT)</h5><ul><li><strong>位置</strong>: <code>api_server.py</code> 接收请求 -> 首个 Token 生成 (<code>first_token_ts</code>)</li><li><strong>计算公式</strong>: <code>req_stats.first_token_ts - req_stats.arrival_time</code></li><li><strong>代码</strong>: <code>first_token_latency = self._time_since(req_stats.arrival_time)</code></li></ul><p><strong>调用栈</strong></p><ol><li>entrypoints/openai/api_server.py: chat / create_chat_completion (Entry Point)</li><li>entrypoints/openai/serving_chat.py: OpenAIServingChat.create_chat_completion</li><li>entrypoints/openai/serving_engine.py: OpenAIServing.generate</li><li>vllm/v1/engine/async_llm.py: AsyncLLM.generate (Submit Request)</li><li>vllm/v1/engine/async_llm.py: _run_output_handler (Output Loop)</li><li>vllm/v1/engine/output_processor.py: OutputProcessor.process_outputs</li><li>vllm/v1/engine/output_processor.py: _update_stats_from_output</li><li>vllm/v1/metrics/stats.py: IterationStats.update_from_output</li></ol><p><strong>代码实现逻辑</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-2 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># vllm/v1/metrics/stats.py</span>
+</span></span><span class=line><span class=cl><span class=k>def</span> <span class=nf>update_from_output</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span> <span class=n>output</span><span class=p>:</span> <span class=n>ModelRunnerOutput</span><span class=p>,</span> <span class=o>...</span><span class=p>):</span>
+</span></span><span class=line><span class=cl>    <span class=c1># 仅在 Prefill 阶段 (is_prefilling=True) 触发</span>
+</span></span><span class=line><span class=cl>    <span class=k>if</span> <span class=n>is_prefilling</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>         <span class=c1># first_token_latency = now() - arrival_time</span>
+</span></span><span class=line><span class=cl>         <span class=n>first_token_latency</span> <span class=o>=</span> <span class=bp>self</span><span class=o>.</span><span class=n>_time_since</span><span class=p>(</span><span class=n>req_stats</span><span class=o>.</span><span class=n>arrival_time</span><span class=p>)</span></span></span></code></pre></div><h5 id=vllmrequest_inference_time_seconds class=headerLink><a href=#vllmrequest_inference_time_seconds class=header-mark></a>1.1.2.3 vllm:request_inference_time_seconds</h5><ul><li><strong>位置</strong>: 请求被调度 (Scheduled) -> 最后一个 Token 生成 (<code>last_token_ts</code>)</li><li><strong>计算公式</strong>: <code>req_stats.last_token_ts - req_stats.scheduled_ts</code></li><li><strong>说明</strong>: 排除在队列中等待的时间 (Queued Time)。</li></ul><p><strong>调用栈</strong></p><ol><li>entrypoints/openai/api_server.py: chat / create_chat_completion (Entry Point)</li><li>entrypoints/openai/serving_chat.py: OpenAIServingChat.create_chat_completion</li><li>entrypoints/openai/serving_engine.py: OpenAIServing.generate</li><li>vllm/v1/engine/async_llm.py: AsyncLLM.generate (Submit Request)</li><li>vllm/v1/engine/async_llm.py: _run_output_handler (Output Loop)</li><li>vllm/v1/engine/output_processor.py: OutputProcessor.process_outputs</li><li>vllm/v1/engine/output_processor.py: _update_stats_from_finished</li><li>vllm/v1/metrics/stats.py: IterationStats.update_from_finished_request</li></ol><p><strong>代码实现逻辑</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-3 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># vllm/v1/metrics/stats.py</span>
+</span></span><span class=line><span class=cl><span class=k>def</span> <span class=nf>update_from_finished_request</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span> <span class=n>req_stats</span><span class=p>:</span> <span class=n>RequestStateStats</span><span class=p>,</span> <span class=o>...</span><span class=p>):</span>
+</span></span><span class=line><span class=cl>    <span class=c1># 请求实际在 GPU 上运行的时间 (Running phase)</span>
+</span></span><span class=line><span class=cl>    <span class=c1># inference_time = last_token_ts - scheduled_ts</span>
+</span></span><span class=line><span class=cl>    <span class=n>inference_time</span> <span class=o>=</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>last_token_ts</span> <span class=o>-</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>scheduled_ts</span></span></span></code></pre></div><h5 id=vllmtime_per_output_token_seconds class=headerLink><a href=#vllmtime_per_output_token_seconds class=header-mark></a>1.1.2.4 vllm:time_per_output_token_seconds</h5><ul><li><strong>位置</strong>: 首个 Token 生成 -> 最后一个 Token 生成 (Decode Phase)</li><li><strong>计算公式</strong>: <code>decode_time / (num_generation_tokens - 1)</code></li><li><strong>说明</strong>: 计算的是 Decode 阶段生成每个 Token 的平均时间。</li></ul><p><strong>调用栈</strong></p><ol><li>entrypoints/openai/api_server.py: chat / create_chat_completion (Entry Point)</li><li>entrypoints/openai/serving_chat.py: OpenAIServingChat.create_chat_completion</li><li>entrypoints/openai/serving_engine.py: OpenAIServing.generate</li><li>vllm/v1/engine/async_llm.py: AsyncLLM.generate (Submit Request)</li><li>vllm/v1/engine/async_llm.py: _run_output_handler (Output Loop)</li><li>vllm/v1/engine/output_processor.py: OutputProcessor.process_outputs</li><li>vllm/v1/engine/output_processor.py: _update_stats_from_finished</li><li>vllm/v1/metrics/stats.py: IterationStats.update_from_finished_request</li></ol><p><strong>代码实现逻辑</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-4 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># vllm/v1/metrics/stats.py</span>
+</span></span><span class=line><span class=cl><span class=k>def</span> <span class=nf>update_from_finished_request</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span> <span class=n>req_stats</span><span class=p>:</span> <span class=n>RequestStateStats</span><span class=p>,</span> <span class=o>...</span><span class=p>):</span>
+</span></span><span class=line><span class=cl>    <span class=c1># Decode 阶段生成每个 Token 的平均时间</span>
+</span></span><span class=line><span class=cl>    <span class=c1># mean_time = decode_time / (generated_tokens - 1)</span>
+</span></span><span class=line><span class=cl>    <span class=n>decode_time</span> <span class=o>=</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>last_token_ts</span> <span class=o>-</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>first_token_ts</span>
+</span></span><span class=line><span class=cl>    <span class=n>mean_time_per_output_token</span> <span class=o>=</span> <span class=p>(</span>
+</span></span><span class=line><span class=cl>        <span class=n>decode_time</span> <span class=o>/</span> <span class=p>(</span><span class=n>req_stats</span><span class=o>.</span><span class=n>num_generation_tokens</span> <span class=o>-</span> <span class=mi>1</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>num_generation_tokens</span> <span class=o>&gt;</span> <span class=mi>1</span> <span class=k>else</span> <span class=mi>0</span>
+</span></span><span class=line><span class=cl>    <span class=p>)</span></span></span></code></pre></div><h4 id=3-capacity--other-metrics-计算逻辑-vllmv1coreschedschedulerpy class=headerLink><a href=#3-capacity--other-metrics-%e8%ae%a1%e7%ae%97%e9%80%bb%e8%be%91-vllmv1coreschedschedulerpy class=header-mark></a>1.1.3 3. Capacity & Other Metrics 计算逻辑 (vllm/v1/core/sched/scheduler.py)</h4><p>这些 Metrics 反映了系统的实时状态，由 <code>Scheduler.make_stats</code> 方法周期性统计。</p><h5 id=vllmnum_requests_running class=headerLink><a href=#vllmnum_requests_running class=header-mark></a>1.1.3.1 vllm:num_requests_running</h5><ul><li><strong>含义</strong>: 当前在 GPU 上运行 (Running) 的请求数量。</li><li><strong>计算方式</strong>: <code>len(self.running)</code></li><li><strong>代码位置</strong>: <code>vllm/v1/core/sched/scheduler.py</code> -> <code>make_stats</code></li></ul><p><strong>调用栈</strong></p><ol><li>vllm/v1/engine/core.py: EngineCore.step (Engine Loop)</li><li>vllm/v1/core/sched/scheduler.py: Scheduler.update_from_output</li><li>vllm/v1/core/sched/scheduler.py: Scheduler.make_stats</li></ol><p><strong>代码实现逻辑</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-5 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># vllm/v1/core/sched/scheduler.py</span>
+</span></span><span class=line><span class=cl><span class=k>def</span> <span class=nf>make_stats</span><span class=p>(</span><span class=bp>self</span><span class=p>)</span> <span class=o>-&gt;</span> <span class=n>SchedulerStats</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>    <span class=c1># 当前正在运行 (Running) 的请求数</span>
+</span></span><span class=line><span class=cl>    <span class=n>num_running_reqs</span> <span class=o>=</span> <span class=nb>len</span><span class=p>(</span><span class=bp>self</span><span class=o>.</span><span class=n>running</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=n>SchedulerStats</span><span class=p>(</span><span class=n>num_running_reqs</span><span class=o>=</span><span class=n>num_running_reqs</span><span class=p>,</span> <span class=o>...</span><span class=p>)</span></span></span></code></pre></div><h5 id=vllmnum_requests_waiting class=headerLink><a href=#vllmnum_requests_waiting class=header-mark></a>1.1.3.2 vllm:num_requests_waiting</h5><ul><li><strong>含义</strong>: 当前在队列中等待 (Waiting) 的请求数量。</li><li><strong>计算方式</strong>: <code>len(self.waiting)</code></li><li><strong>代码位置</strong>: <code>vllm/v1/core/sched/scheduler.py</code> -> <code>make_stats</code></li></ul><p><strong>调用栈</strong></p><ol><li>vllm/v1/engine/core.py: EngineCore.step (Engine Loop)</li><li>vllm/v1/core/sched/scheduler.py: Scheduler.update_from_output</li><li>vllm/v1/core/sched/scheduler.py: Scheduler.make_stats</li></ol><p><strong>代码实现逻辑</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-6 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># vllm/v1/core/sched/scheduler.py</span>
+</span></span><span class=line><span class=cl><span class=k>def</span> <span class=nf>make_stats</span><span class=p>(</span><span class=bp>self</span><span class=p>)</span> <span class=o>-&gt;</span> <span class=n>SchedulerStats</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>    <span class=c1># 当前在队列中等待 (Waiting) 的请求数</span>
+</span></span><span class=line><span class=cl>    <span class=n>num_waiting_reqs</span> <span class=o>=</span> <span class=nb>len</span><span class=p>(</span><span class=bp>self</span><span class=o>.</span><span class=n>waiting</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=n>SchedulerStats</span><span class=p>(</span><span class=n>num_waiting_reqs</span><span class=o>=</span><span class=n>num_waiting_reqs</span><span class=p>,</span> <span class=o>...</span><span class=p>)</span></span></span></code></pre></div><h5 id=vllmgpu_cache_usage_perc class=headerLink><a href=#vllmgpu_cache_usage_perc class=header-mark></a>1.1.3.3 vllm:gpu_cache_usage_perc</h5><ul><li><strong>含义</strong>: GPU KV Cache 的使用率 (0.0 - 1.0)。</li><li><strong>计算方式</strong>: <code>self.kv_cache_manager.usage</code></li><li><strong>代码位置</strong>: <code>vllm/v1/core/kv_cache_manager.py</code> (Manager 计算) -> <code>scheduler.py</code> (收集)</li><li><strong>逻辑</strong>: <code>num_used_blocks / num_total_blocks</code></li></ul><p><strong>调用栈</strong></p><ol><li>vllm/v1/engine/core.py: EngineCore.step (Engine Loop)</li><li>vllm/v1/core/sched/scheduler.py: Scheduler.update_from_output</li><li>vllm/v1/core/sched/scheduler.py: Scheduler.make_stats</li></ol><p><strong>代码实现逻辑</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-7 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># vllm/v1/core/sched/scheduler.py</span>
+</span></span><span class=line><span class=cl><span class=k>def</span> <span class=nf>make_stats</span><span class=p>(</span><span class=bp>self</span><span class=p>)</span> <span class=o>-&gt;</span> <span class=n>SchedulerStats</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>    <span class=c1># GPU KV Cache 使用率</span>
+</span></span><span class=line><span class=cl>    <span class=c1># 由 KVCacheManager 计算: used_blocks / total_blocks</span>
+</span></span><span class=line><span class=cl>    <span class=n>gpu_cache_usage</span> <span class=o>=</span> <span class=bp>self</span><span class=o>.</span><span class=n>kv_cache_manager</span><span class=o>.</span><span class=n>usage</span>
+</span></span><span class=line><span class=cl>    <span class=k>return</span> <span class=n>SchedulerStats</span><span class=p>(</span><span class=n>gpu_cache_usage</span><span class=o>=</span><span class=n>gpu_cache_usage</span><span class=p>,</span> <span class=o>...</span><span class=p>)</span></span></span></code></pre></div><h4 id=4指标统计函数详解 class=headerLink><a href=#4%e6%8c%87%e6%a0%87%e7%bb%9f%e8%ae%a1%e5%87%bd%e6%95%b0%e8%af%a6%e8%a7%a3 class=header-mark></a>1.1.4 4.指标统计函数详解</h4><p>本节详细展示 vLLM V1 中计算核心指标的源码，并解析其背后的计算逻辑。</p><p><strong>深度解析：统计频率与 Batch 处理关系</strong></p><p>为准确理解 vLLM 的指标计算机制，需厘清三种不同的调用频率及其与 Batch 处理的关系：</p><ol><li><p><strong>每个推理步一次 (Per-Step)</strong></p><ul><li><strong>典型函数</strong>: <code>Scheduler.update_from_output</code>, <code>Scheduler.make_stats</code>。</li><li><strong>核心逻辑</strong>: 维护<strong>系统级</strong>全局状态。在每个 Engine Step 结束时执行一次，负责更新调度器状态（如 Running/Waiting 队列长度）和资源使用情况（如 GPU KV Cache 使用率）。</li><li><strong>与 Batch 的关系</strong>: 此时系统以 <strong>Batch</strong> 为操作单元，关注整体负载与资源水位，而非单个请求的内容。</li></ul></li><li><p><strong>每个请求的每个推理步一次 (Per-Request-Per-Step)</strong></p><ul><li><strong>典型函数</strong>: <code>IterationStats.update_from_output</code>。</li><li><strong>核心逻辑</strong>: 维护<strong>流式/增量</strong>指标。在 <code>OutputProcessor</code> 处理阶段，系统会遍历 Batch 中的每一个请求输出，逐一调用此函数。<ul><li><strong>TTFT/ITL</strong>: 若 Batch 中有 N 个请求同时产生数据（如同时完成 Prefill），该函数执行 N 次，记录 N 个独立的观测值（如 TTFT），从而在 Prometheus 中准确体现 P99 等分布情况。</li><li><strong>Token 计数</strong>: <code>len(output.new_token_ids)</code> 仅代表<strong>当前请求</strong>在<strong>当前步</strong>生成的 Token 数（通常为 1，投机采样时可能 > 1），而非整个 Batch 的总产出。</li></ul></li><li><strong>与 Batch 的关系</strong>: 尽管 vLLM 核心采用 Continuous Batching 并行计算，但在指标统计层，Batch 结果被<strong>拆解</strong>回独立的 Request 粒度。因此，实时指标是基于<strong>单个请求</strong>的视角精确计算的，不受 Batch Size 聚合的干扰。</li></ul></li><li><p><strong>每个请求一次 (Per-Request)</strong></p><ul><li><strong>典型函数</strong>: <code>IterationStats.update_from_finished_request</code>。</li><li><strong>核心逻辑</strong>: 维护<strong>终态</strong>指标。仅在请求完成（Finish/Abort）时调用一次，计算全链路耗时（E2E Latency）、总推理耗时（Inference Time）及平均生成速度（TPOT）。</li><li><strong>与 Batch 的关系</strong>: 此时完全脱离 Batch 上下文，仅聚焦于单个请求从到达（Arrival）到结束（Finished）的完整生命周期。</li></ul></li></ol><h5 id=update_from_output class=headerLink><a href=#update_from_output class=header-mark></a>1.1.4.1 update_from_output</h5><p>该函数位于 <code>vllm/v1/metrics/stats.py</code> 的 <code>IterationStats</code> 类中。它在每一个 Engine Step 结束后被调用，用于更新正在运行的请求的实时统计信息。</p><div class="code-block highlight is-closed show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-8 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl>    <span class=k>def</span> <span class=nf>update_from_output</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span> <span class=n>output</span><span class=p>:</span> <span class=s2>&#34;EngineCoreOutput&#34;</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                           <span class=n>engine_core_timestamp</span><span class=p>:</span> <span class=nb>float</span><span class=p>,</span> <span class=n>is_prefilling</span><span class=p>:</span> <span class=nb>bool</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                           <span class=n>prompt_len</span><span class=p>:</span> <span class=nb>int</span><span class=p>,</span> <span class=n>req_stats</span><span class=p>:</span> <span class=n>RequestStateStats</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                           <span class=n>lora_stats</span><span class=p>:</span> <span class=n>Optional</span><span class=p>[</span><span class=n>LoRAStats</span><span class=p>]):</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 获取当前步骤生成的 Token 数量 (通常为 1，Speculative Decoding 下可能 &gt; 1)</span>
+</span></span><span class=line><span class=cl>        <span class=n>num_new_generation_tokens</span> <span class=o>=</span> <span class=nb>len</span><span class=p>(</span><span class=n>output</span><span class=o>.</span><span class=n>new_token_ids</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># 更新 Batch 级别的总生成 Token 数 (用于 Prometheus Counter: vllm:num_generation_tokens_total)</span>
+</span></span><span class=line><span class=cl>        <span class=bp>self</span><span class=o>.</span><span class=n>num_generation_tokens</span> <span class=o>+=</span> <span class=n>num_new_generation_tokens</span>
+</span></span><span class=line><span class=cl>        
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=n>is_prefilling</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>            <span class=c1># 如果是 Prefill 阶段，累加 Prompt Token 数量 (vllm:num_prompt_tokens_total)</span>
+</span></span><span class=line><span class=cl>            <span class=bp>self</span><span class=o>.</span><span class=n>num_prompt_tokens</span> <span class=o>+=</span> <span class=n>prompt_len</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>            <span class=c1># 计算 Time To First Token (TTFT)</span>
+</span></span><span class=line><span class=cl>            <span class=c1># arrival_time 是请求到达 API Server 的时间，由 OpenAIServing 层记录</span>
+</span></span><span class=line><span class=cl>            <span class=n>first_token_latency</span> <span class=o>=</span> <span class=bp>self</span><span class=o>.</span><span class=n>_time_since</span><span class=p>(</span><span class=n>req_stats</span><span class=o>.</span><span class=n>arrival_time</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># 记录到 TTFT 直方图数据中 (vllm:time_to_first_token_seconds)</span>
+</span></span><span class=line><span class=cl>            <span class=bp>self</span><span class=o>.</span><span class=n>time_to_first_tokens_iter</span><span class=o>.</span><span class=n>append</span><span class=p>(</span><span class=n>first_token_latency</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># 更新请求状态中的 TTFT，供后续 logging 使用</span>
+</span></span><span class=line><span class=cl>            <span class=n>req_stats</span><span class=o>.</span><span class=n>first_token_latency</span> <span class=o>=</span> <span class=n>first_token_latency</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># 更新该请求累计生成的 Token 计数</span>
+</span></span><span class=line><span class=cl>        <span class=n>req_stats</span><span class=o>.</span><span class=n>num_generation_tokens</span> <span class=o>+=</span> <span class=n>num_new_generation_tokens</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># 处理请求级别的事件 (如 PREEMPT, FINISH 等)</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=n>output</span><span class=o>.</span><span class=n>events</span> <span class=ow>is</span> <span class=ow>not</span> <span class=kc>None</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>            <span class=bp>self</span><span class=o>.</span><span class=n>update_from_events</span><span class=p>(</span><span class=n>output</span><span class=o>.</span><span class=n>request_id</span><span class=p>,</span> <span class=n>output</span><span class=o>.</span><span class=n>events</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                    <span class=n>is_prefilling</span><span class=p>,</span> <span class=n>req_stats</span><span class=p>,</span> <span class=n>lora_stats</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># 处理 Batch 级别的 &#34;new tokens&#34; 事件，用于计算 Token 间延迟</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=n>is_prefilling</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>            <span class=c1># 如果是 Prefill，记录第一个 Token 生成的时间戳 (作为 Decode 阶段计算 ITL 的基准)</span>
+</span></span><span class=line><span class=cl>            <span class=n>req_stats</span><span class=o>.</span><span class=n>first_token_ts</span> <span class=o>=</span> <span class=n>engine_core_timestamp</span>
+</span></span><span class=line><span class=cl>        <span class=k>else</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>            <span class=c1># 如果是 Decode，计算 Inter-Token Latency (ITL)</span>
+</span></span><span class=line><span class=cl>            <span class=c1># ITL = 当前时间戳 - 上一个 Token 生成的时间戳</span>
+</span></span><span class=line><span class=cl>            <span class=n>itl</span> <span class=o>=</span> <span class=n>engine_core_timestamp</span> <span class=o>-</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>last_token_ts</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># 记录到 ITL 直方图数据中 (vllm:inter_token_latencies_seconds) (注意：Prometheus 中通常体现为 Histogram)</span>
+</span></span><span class=line><span class=cl>            <span class=bp>self</span><span class=o>.</span><span class=n>inter_token_latencies_iter</span><span class=o>.</span><span class=n>append</span><span class=p>(</span><span class=n>itl</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># 更新最后一次生成 Token 的时间戳</span>
+</span></span><span class=line><span class=cl>        <span class=n>req_stats</span><span class=o>.</span><span class=n>last_token_ts</span> <span class=o>=</span> <span class=n>engine_core_timestamp</span></span></span></code></pre></div><p><strong>指标说明与计算方式：</strong></p><ol><li><p><strong>TTFT (Time To First Token)</strong>:</p><ul><li><strong>计算条件</strong>: 仅在 <code>is_prefilling=True</code> 时计算。</li><li><strong>公式</strong>: <code>Current Time - Request Arrival Time</code>。</li><li><strong>意义</strong>: 用户发出请求到看到第一个字符的时间，反映系统的响应速度。</li></ul></li><li><p><strong>ITL (Inter-Token Latency)</strong>:</p><ul><li><strong>计算条件</strong>: 仅在 Decode 阶段计算。</li><li><strong>公式</strong>: <code>Current Token Timestamp - Previous Token Timestamp</code>。</li><li><strong>意义</strong>: 生成两个相邻 Token 之间的时间间隔，反映生成过程的流畅度。</li></ul></li><li><p><strong>Token Counts</strong>:</p><ul><li>分别统计 Prompt Tokens 和 Generation Tokens，用于计算系统的吞吐量 (Tokens/s)。</li></ul></li></ol><hr><h5 id=update_from_finished_request class=headerLink><a href=#update_from_finished_request class=header-mark></a>1.1.4.2 update_from_finished_request</h5><p>该函数位于 <code>vllm/v1/metrics/stats.py</code> 的 <code>IterationStats</code> 类中。当一个请求完成（或被取消/报错）时调用，用于计算最终的请求级指标。</p><div class="code-block highlight is-closed show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-9 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl>    <span class=k>def</span> <span class=nf>update_from_finished_request</span><span class=p>(</span><span class=bp>self</span><span class=p>,</span> <span class=n>finish_reason</span><span class=p>:</span> <span class=s2>&#34;FinishReason&#34;</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                     <span class=n>num_prompt_tokens</span><span class=p>:</span> <span class=nb>int</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                     <span class=n>max_tokens_param</span><span class=p>:</span> <span class=n>Optional</span><span class=p>[</span><span class=nb>int</span><span class=p>],</span>
+</span></span><span class=line><span class=cl>                                     <span class=n>req_stats</span><span class=p>:</span> <span class=n>RequestStateStats</span><span class=p>):</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 计算端到端延迟 (E2E Latency): 请求到达 -&gt; 请求结束</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 对应指标: vllm:e2e_request_latency_seconds</span>
+</span></span><span class=line><span class=cl>        <span class=n>e2e_latency</span> <span class=o>=</span> <span class=bp>self</span><span class=o>.</span><span class=n>_time_since</span><span class=p>(</span><span class=n>req_stats</span><span class=o>.</span><span class=n>arrival_time</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># Queued Time (排队时间): 到达队列 -&gt; 第一次被调度</span>
+</span></span><span class=line><span class=cl>        <span class=c1># req_stats.queued_ts: 请求加入 Scheduler 等待队列的时间</span>
+</span></span><span class=line><span class=cl>        <span class=c1># req_stats.scheduled_ts: 请求第一次被 Scheduler 选中运行的时间</span>
+</span></span><span class=line><span class=cl>        <span class=n>queued_time</span> <span class=o>=</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>scheduled_ts</span> <span class=o>-</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>queued_ts</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># Prefill Time (首字生成时间): 第一次调度 -&gt; 生成第一个 Token</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 注意：这包含了 Prefill 计算时间以及在此期间可能发生的被抢占(Preemption)时间</span>
+</span></span><span class=line><span class=cl>        <span class=n>prefill_time</span> <span class=o>=</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>first_token_ts</span> <span class=o>-</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>scheduled_ts</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># Decode Time (解码时间): 第一个 Token -&gt; 最后一个 Token</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 注意：包含了 Decode 阶段的计算时间以及可能发生的被抢占时间</span>
+</span></span><span class=line><span class=cl>        <span class=n>decode_time</span> <span class=o>=</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>last_token_ts</span> <span class=o>-</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>first_token_ts</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># Inference Time (总推理时间): 第一次调度 -&gt; 最后一个 Token</span>
+</span></span><span class=line><span class=cl>        <span class=c1># = Prefill Time + Decode Time</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 对应指标: vllm:request_inference_time_seconds</span>
+</span></span><span class=line><span class=cl>        <span class=n>inference_time</span> <span class=o>=</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>last_token_ts</span> <span class=o>-</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>scheduled_ts</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># Mean Time Per Output Token (平均每个输出 Token 的生成时间)</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 排除 Prefill 阶段生成的那个 Token (即 First Token)</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 公式: Decode Time / (Generated Tokens - 1)</span>
+</span></span><span class=line><span class=cl>        <span class=c1># 对应指标: vllm:time_per_output_token_seconds</span>
+</span></span><span class=line><span class=cl>        <span class=n>mean_time_per_output_token</span> <span class=o>=</span> <span class=p>(</span><span class=n>decode_time</span> <span class=o>/</span>
+</span></span><span class=line><span class=cl>                                      <span class=p>(</span><span class=n>req_stats</span><span class=o>.</span><span class=n>num_generation_tokens</span> <span class=o>-</span> <span class=mi>1</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>                                      <span class=k>if</span> <span class=n>req_stats</span><span class=o>.</span><span class=n>num_generation_tokens</span> <span class=o>-</span>
+</span></span><span class=line><span class=cl>                                      <span class=mi>1</span> <span class=o>&gt;</span> <span class=mi>0</span> <span class=k>else</span> <span class=mi>0</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># 创建 FinishedRequestStats 对象，用于后续上报 Metrics</span>
+</span></span><span class=line><span class=cl>        <span class=n>finished_req</span> <span class=o>=</span> \
+</span></span><span class=line><span class=cl>            <span class=n>FinishedRequestStats</span><span class=p>(</span><span class=n>finish_reason</span><span class=o>=</span><span class=n>finish_reason</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>e2e_latency</span><span class=o>=</span><span class=n>e2e_latency</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>num_prompt_tokens</span><span class=o>=</span><span class=n>num_prompt_tokens</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>num_generation_tokens</span><span class=o>=</span><span class=n>req_stats</span><span class=o>.</span><span class=n>num_generation_tokens</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>max_tokens_param</span><span class=o>=</span><span class=n>max_tokens_param</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>queued_time</span><span class=o>=</span><span class=n>queued_time</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>prefill_time</span><span class=o>=</span><span class=n>prefill_time</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>inference_time</span><span class=o>=</span><span class=n>inference_time</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>decode_time</span><span class=o>=</span><span class=n>decode_time</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                 <span class=n>mean_time_per_output_token</span><span class=o>=</span><span class=n>mean_time_per_output_token</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>        <span class=bp>self</span><span class=o>.</span><span class=n>finished_requests</span><span class=o>.</span><span class=n>append</span><span class=p>(</span><span class=n>finished_req</span><span class=p>)</span></span></span></code></pre></div><p><strong>指标说明与计算方式：</strong></p><ol><li><p><strong>E2E Latency (End-to-End Latency)</strong>:</p><ul><li><strong>公式</strong>: <code>now() - arrival_time</code></li><li><strong>包含</strong>: 排队时间 + Prefill 时间 + Decode 时间 + 网络开销(如果在 API Server 测)。</li><li><strong>意义</strong>: 用户感受到的总延迟。</li></ul></li><li><p><strong>Inference Time</strong>:</p><ul><li><strong>公式</strong>: <code>last_token_ts - scheduled_ts</code></li><li><strong>包含</strong>: Prefill 时间 + Decode 时间。<strong>不包含</strong> 排队时间。</li><li><strong>意义</strong>: 衡量模型在 GPU 上处理该请求的实际耗时（包含被抢占挂起的时间）。</li></ul></li><li><p><strong>Mean Time Per Output Token</strong>:</p><ul><li><strong>公式</strong>: <code>decode_time / (num_generation_tokens - 1)</code></li><li><strong>意义</strong>: 仅衡量 Decode 阶段的生成速度，排除了 Prefill 阶段（Prefill 通常是计算密集型，耗时特性不同）。这是衡量生成吞吐量的关键指标。</li></ul></li></ol><hr><h5 id=schedulerupdate_from_output---schedulermake_stats class=headerLink><a href=#schedulerupdate_from_output---schedulermake_stats class=header-mark></a>1.1.4.3 Scheduler.update_from_output -> Scheduler.make_stats</h5><p>这两个函数位于 <code>vllm/v1/core/sched/scheduler.py</code>。<code>update_from_output</code> 负责更新请求状态（如 Speculative Decoding 的接受/拒绝），而 <code>make_stats</code> 负责生成系统级的状态快照。</p><div class="code-block highlight is-closed show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">python</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-10 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl>    <span class=c1># vllm/v1/core/sched/scheduler.py</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>    <span class=k>def</span> <span class=nf>update_from_output</span><span class=p>(</span>
+</span></span><span class=line><span class=cl>        <span class=bp>self</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>        <span class=n>scheduler_output</span><span class=p>:</span> <span class=n>SchedulerOutput</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>        <span class=n>model_runner_output</span><span class=p>:</span> <span class=n>ModelRunnerOutput</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>    <span class=p>)</span> <span class=o>-&gt;</span> <span class=nb>dict</span><span class=p>[</span><span class=nb>int</span><span class=p>,</span> <span class=n>EngineCoreOutputs</span><span class=p>]:</span>
+</span></span><span class=line><span class=cl>        <span class=c1># ... (省略部分代码) ...</span>
+</span></span><span class=line><span class=cl>        
+</span></span><span class=line><span class=cl>        <span class=c1># 遍历 Model Runner 返回的输出</span>
+</span></span><span class=line><span class=cl>        <span class=k>for</span> <span class=n>req_id</span><span class=p>,</span> <span class=n>num_tokens_scheduled</span> <span class=ow>in</span> <span class=n>num_scheduled_tokens</span><span class=o>.</span><span class=n>items</span><span class=p>():</span>
+</span></span><span class=line><span class=cl>            <span class=c1># ...</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># [Speculative Decoding] 处理投机采样的统计</span>
+</span></span><span class=line><span class=cl>            <span class=n>scheduled_spec_token_ids</span> <span class=o>=</span> <span class=p>(</span>
+</span></span><span class=line><span class=cl>                <span class=n>scheduler_output</span><span class=o>.</span><span class=n>scheduled_spec_decode_tokens</span><span class=o>.</span><span class=n>get</span><span class=p>(</span><span class=n>req_id</span><span class=p>))</span>
+</span></span><span class=line><span class=cl>            <span class=k>if</span> <span class=n>scheduled_spec_token_ids</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>                <span class=n>num_draft_tokens</span> <span class=o>=</span> <span class=nb>len</span><span class=p>(</span><span class=n>scheduled_spec_token_ids</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>                <span class=c1># 计算接受的 Token 数 (实际生成的 - 1，因为 generated 包含原本的 last token 和新生成的)</span>
+</span></span><span class=line><span class=cl>                <span class=n>num_accepted</span> <span class=o>=</span> <span class=nb>len</span><span class=p>(</span><span class=n>generated_token_ids</span><span class=p>)</span> <span class=o>-</span> <span class=mi>1</span>
+</span></span><span class=line><span class=cl>                
+</span></span><span class=line><span class=cl>                <span class=c1># 聚合 Spec Decoding 统计信息 (如接受率、草稿 Token 数)</span>
+</span></span><span class=line><span class=cl>                <span class=n>spec_decoding_stats</span> <span class=o>=</span> <span class=bp>self</span><span class=o>.</span><span class=n>make_spec_decoding_stats</span><span class=p>(</span>
+</span></span><span class=line><span class=cl>                    <span class=n>spec_decoding_stats</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                    <span class=n>num_draft_tokens</span><span class=o>=</span><span class=n>num_draft_tokens</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                    <span class=n>num_accepted_tokens</span><span class=o>=</span><span class=n>num_accepted</span><span class=p>)</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>            <span class=c1># ... (检查 Stop 条件，更新 stopped_running_reqs 等) ...</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># ... (移除已停止的请求) ...</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=c1># 调用 make_stats 生成系统状态统计</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=p>(</span><span class=n>stats</span> <span class=o>:=</span> <span class=bp>self</span><span class=o>.</span><span class=n>make_stats</span><span class=p>(</span><span class=n>spec_decoding_stats</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>                                     <span class=n>kv_connector_stats</span><span class=p>))</span> <span class=ow>is</span> <span class=ow>not</span> <span class=kc>None</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>             <span class=c1># 将统计信息附加到输出中，传回给 OutputProcessor</span>
+</span></span><span class=line><span class=cl>             <span class=k>if</span> <span class=p>(</span><span class=n>eco</span> <span class=o>:=</span> <span class=nb>next</span><span class=p>(</span><span class=nb>iter</span><span class=p>(</span><span class=n>engine_core_outputs</span><span class=o>.</span><span class=n>values</span><span class=p>()),</span> <span class=kc>None</span><span class=p>))</span> <span class=ow>is</span> <span class=kc>None</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>                <span class=n>engine_core_outputs</span><span class=p>[</span><span class=mi>0</span><span class=p>]</span> <span class=o>=</span> <span class=n>eco</span> <span class=o>=</span> <span class=n>EngineCoreOutputs</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>             <span class=n>eco</span><span class=o>.</span><span class=n>scheduler_stats</span> <span class=o>=</span> <span class=n>stats</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=n>engine_core_outputs</span>
+</span></span><span class=line><span class=cl>
+</span></span><span class=line><span class=cl>    <span class=k>def</span> <span class=nf>make_stats</span><span class=p>(</span>
+</span></span><span class=line><span class=cl>        <span class=bp>self</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>        <span class=n>spec_decoding_stats</span><span class=p>:</span> <span class=n>Optional</span><span class=p>[</span><span class=n>SpecDecodingStats</span><span class=p>]</span> <span class=o>=</span> <span class=kc>None</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>        <span class=n>kv_connector_stats</span><span class=p>:</span> <span class=n>Optional</span><span class=p>[</span><span class=n>KVConnectorStats</span><span class=p>]</span> <span class=o>=</span> <span class=kc>None</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>    <span class=p>)</span> <span class=o>-&gt;</span> <span class=n>Optional</span><span class=p>[</span><span class=n>SchedulerStats</span><span class=p>]:</span>
+</span></span><span class=line><span class=cl>        <span class=k>if</span> <span class=ow>not</span> <span class=bp>self</span><span class=o>.</span><span class=n>log_stats</span><span class=p>:</span>
+</span></span><span class=line><span class=cl>            <span class=k>return</span> <span class=kc>None</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>        <span class=c1># 获取 Prefix Cache (公共前缀缓存) 统计</span>
+</span></span><span class=line><span class=cl>        <span class=n>prefix_cache_stats</span> <span class=o>=</span> <span class=bp>self</span><span class=o>.</span><span class=n>kv_cache_manager</span><span class=o>.</span><span class=n>make_prefix_cache_stats</span><span class=p>()</span>
+</span></span><span class=line><span class=cl>        
+</span></span><span class=line><span class=cl>        <span class=k>return</span> <span class=n>SchedulerStats</span><span class=p>(</span>
+</span></span><span class=line><span class=cl>            <span class=c1># 1. 并发请求数统计</span>
+</span></span><span class=line><span class=cl>            <span class=c1># vllm:num_requests_running</span>
+</span></span><span class=line><span class=cl>            <span class=n>num_running_reqs</span><span class=o>=</span><span class=nb>len</span><span class=p>(</span><span class=bp>self</span><span class=o>.</span><span class=n>running</span><span class=p>),</span>
+</span></span><span class=line><span class=cl>            <span class=c1># vllm:num_requests_waiting</span>
+</span></span><span class=line><span class=cl>            <span class=n>num_waiting_reqs</span><span class=o>=</span><span class=nb>len</span><span class=p>(</span><span class=bp>self</span><span class=o>.</span><span class=n>waiting</span><span class=p>),</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># 2. 显存使用统计</span>
+</span></span><span class=line><span class=cl>            <span class=c1># vllm:gpu_cache_usage_perc</span>
+</span></span><span class=line><span class=cl>            <span class=c1># kv_cache_manager.usage = used_blocks / total_blocks</span>
+</span></span><span class=line><span class=cl>            <span class=n>kv_cache_usage</span><span class=o>=</span><span class=bp>self</span><span class=o>.</span><span class=n>kv_cache_manager</span><span class=o>.</span><span class=n>usage</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># 3. Cache 命中统计</span>
+</span></span><span class=line><span class=cl>            <span class=n>prefix_cache_stats</span><span class=o>=</span><span class=n>prefix_cache_stats</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># 4. 投机采样统计 (如果有)</span>
+</span></span><span class=line><span class=cl>            <span class=n>spec_decoding_stats</span><span class=o>=</span><span class=n>spec_decoding_stats</span><span class=p>,</span>
+</span></span><span class=line><span class=cl>            
+</span></span><span class=line><span class=cl>            <span class=c1># 5. 异常统计</span>
+</span></span><span class=line><span class=cl>            <span class=n>num_corrupted_reqs</span><span class=o>=</span><span class=nb>sum</span><span class=p>(</span><span class=n>req</span><span class=o>.</span><span class=n>is_output_corrupted</span>
+</span></span><span class=line><span class=cl>                                                     <span class=k>for</span> <span class=n>req</span> <span class=ow>in</span> <span class=bp>self</span><span class=o>.</span><span class=n>running</span><span class=p>),</span>
+</span></span><span class=line><span class=cl>            <span class=c1># 6. KV 传输统计 (KV Cache Transfer, 用于分离式架构)</span>
+</span></span><span class=line><span class=cl>            <span class=n>kv_connector_stats</span><span class=o>=</span><span class=n>kv_connector_stats</span><span class=o>.</span><span class=n>data</span>
+</span></span><span class=line><span class=cl>            <span class=k>if</span> <span class=n>kv_connector_stats</span> <span class=k>else</span> <span class=kc>None</span><span class=p>)</span></span></span></code></pre></div><p><strong>指标说明与计算方式：</strong></p><ol><li><p><strong>Capacity Metrics (容量指标)</strong>:</p><ul><li><code>num_running_reqs</code>: 调度器 <code>running</code> 队列的长度。反映当前负载。</li><li><code>num_waiting_reqs</code>: 调度器 <code>waiting</code> 队列的长度。反映积压情况。</li></ul></li><li><p><strong>Resource Usage (资源使用)</strong>:</p><ul><li><code>kv_cache_usage</code>: GPU KV Cache Block 的使用率。接近 1.0 表示显存已满，可能触发抢占。</li></ul></li><li><p><strong>Speculative Decoding Stats</strong>:</p><ul><li>记录 Draft Tokens 的数量和 Accepted Tokens 的数量，用于计算投机采样的加速比和接受率。</li></ul></li></ol><h4 id=5指标梳理 class=headerLink><a href=#5%e6%8c%87%e6%a0%87%e6%a2%b3%e7%90%86 class=header-mark></a>1.1.5 5.指标梳理</h4><p>基于 Prometheus 指标输出，将 vLLM 的指标归纳整理如下。这些指标涵盖了系统负载、请求延迟、Token 吞吐以及资源使用情况。</p><p><strong>分类说明</strong>：</p><ul><li><strong>Batch/System</strong>: 描述整个 vLLM 实例或当前 Batch 的状态。</li><li><strong>Request</strong>: 描述单个请求的统计分布（通常以 Histogram 形式存在）。</li><li><strong>Resource</strong>: 描述计算和存储资源的使用情况。</li></ul><p><strong>Prometheus 指标类型说明</strong>：</p><p>在阅读下列指标时，理解 Prometheus 的三种核心数据类型至关重要：</p><ol><li><p><strong>Counter (计数器)</strong></p><ul><li><p><strong>特点</strong>: <strong>只增不减</strong>的累加数值。</p></li><li><p><strong>用途</strong>: 记录累计发生的次数，如 <code>vllm:num_preemptions_total</code> (抢占总次数)。</p></li><li><p><strong>如何阅读</strong>: 单看当前值意义不大（因为它一直在涨）。通常配合 <code>rate()</code> 函数使用，计算<strong>增长速率</strong>（例如：每秒产生的 Token 数 = <code>rate(vllm:generation_tokens_total[1m])</code>）。</p></li><li><p><strong>示例</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">bash</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-11 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># HELP vllm:generation_tokens_total Number of generation tokens processed.</span>
+</span></span><span class=line><span class=cl><span class=c1># TYPE vllm:generation_tokens_total counter</span>
+</span></span><span class=line><span class=cl>vllm:generation_tokens_total<span class=o>{</span><span class=nv>engine</span><span class=o>=</span><span class=s2>&#34;0&#34;</span>,model_name<span class=o>=</span><span class=s2>&#34;Qwen3-1.7B&#34;</span><span class=o>}</span> 12345.0</span></span></code></pre></div></li></ul></li><li><p><strong>Gauge (仪表盘)</strong></p><ul><li><p><strong>特点</strong>: <strong>可增可减</strong>的瞬时数值。</p></li><li><p><strong>用途</strong>: 记录系统的当前状态，如 <code>vllm:num_requests_running</code> (当前并发数) 或 <code>vllm:gpu_cache_usage_perc</code> (显存使用率)。</p></li><li><p><strong>如何阅读</strong>: 直接读取当前值即可反映系统现状。</p></li><li><p><strong>示例</strong>:</p><div class="code-block highlight is-open show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">bash</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-12 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># HELP vllm:num_requests_running Number of requests in model execution batches.</span>
+</span></span><span class=line><span class=cl><span class=c1># TYPE vllm:num_requests_running gauge</span>
+</span></span><span class=line><span class=cl>vllm:num_requests_running<span class=o>{</span><span class=nv>engine</span><span class=o>=</span><span class=s2>&#34;0&#34;</span>,model_name<span class=o>=</span><span class=s2>&#34;Qwen3-1.7B&#34;</span><span class=o>}</span> 12.0</span></span></code></pre></div></li></ul></li><li><p><strong>Histogram (直方图)</strong></p><ul><li><p><strong>特点</strong>: 将观测到的数值（如延迟、Request长度）放入预设的多个<strong>桶 (Bucket)</strong> 中进行统计。</p></li><li><p><strong>用途</strong>: 描述数据的<strong>分布情况</strong>，而非仅仅是平均值。适用于 <code>vllm:e2e_request_latency_seconds</code> 等指标。</p></li><li><p><strong>为什么会有这么多行?</strong>: 一个 Histogram 指标在 Prometheus <code>/metrics</code> 接口中会展开为三类数据：</p><ul><li><code>&lt;metric_name>_bucket{le="0.1"}</code>: 数值小于等于 0.1 的样本数量 (累积计数)。</li><li><code>&lt;metric_name>_bucket{le="0.5"}</code>: 数值小于等于 0.5 的样本数量。</li><li><code>...</code>: 更多的桶。</li><li><code>&lt;metric_name>_sum</code>: 所有样本值的总和。</li><li><code>&lt;metric_name>_count</code>: 样本总数。</li></ul></li><li><p><strong>如何阅读</strong>: 不要直接看 Bucket 的原始值。应使用 <code>histogram_quantile(0.99, ...)</code> 函数来计算 P99 延迟，或用 <code>_sum / _count</code> 计算平均值。</p></li><li><p><strong>示例 (TTFT)</strong>:</p><div class="code-block highlight is-closed show-line-numbers tw-group tw-my-2"><div class="tw-flex
+tw-flex-row
+tw-flex-1
+tw-justify-between
+tw-w-full tw-bg-bgColor-secondary"><button class="code-block-button
+tw-mx-2
+tw-flex
+tw-flex-row
+tw-flex-1" aria-hidden=true><div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon" viewBox="0 0 320 512"><path d="M285.476 272.971 91.132 467.314c-9.373 9.373-24.569 9.373-33.941.0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941.0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div><p class="tw-select-none !tw-my-1">bash</p></button><div class=tw-flex><button class="line-number-button
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.show-line-numbers]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle line numbers"><svg class="icon" viewBox="0 0 512 512"><path d="M61.77 401l17.5-20.15a19.92 19.92.0 005.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 00-8 8v16a8 8 0 008 8h22.83a157.41 157.41.0 00-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33.0 15.94 2.44 15.94 9.09.0 4.72-4.2 8.22-14.36 8.22a41.54 41.54.0 01-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16.0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zm0-160H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16V80a16 16 0 00-16-16zm0 320H176a16 16 0 00-16 16v32a16 16 0 0016 16h320a16 16 0 0016-16v-32a16 16 0 00-16-16zM16 160h64a8 8 0 008-8v-16a8 8 0 00-8-8H64V40a8 8 0 00-8-8H32a8 8 0 00-7.14 4.42l-8 16A8 8 0 0024 64h8v64H16a8 8 0 00-8 8v16a8 8 0 008 8zm-3.91 160H80a8 8 0 008-8v-16a8 8 0 00-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44.0-29.06-25-39.56-44.47-39.56-21.36.0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44.0 019.46-3.84c3.33.0 9.28 1.56 9.28 8.75C51 248.19.0 257.31.0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
+<button class="wrap-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+group-[.is-wrap]:tw-text-fgColor-link
+print:!tw-hidden" title="Toggle code wrap"><svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
+<button class="copy-code-button
+tw-select-none
+tw-mx-2
+tw-hidden
+group-[.is-open]:tw-block
+hover:tw-text-fgColor-link
+print:!tw-hidden" title="Copy code">
+<span class="copy-icon tw-block"><svg class="icon" viewBox="0 0 448 512"><path d="M433.941 65.941l-51.882-51.882A48 48 0 00348.118.0H176c-26.51.0-48 21.49-48 48v48H48c-26.51.0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51.0 48-21.49 48-48v-48h80c26.51.0 48-21.49 48-48V99.882a48 48 0 00-14.059-33.941zM266 464H54a6 6 0 01-6-6V150a6 6 0 016-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 01-6 6zm128-96H182a6 6 0 01-6-6V54a6 6 0 016-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 01-6 6zm6-256h-64V48h9.632c1.591.0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 011.757 4.243V112z"/></svg></span>
+<span class="check-icon tw-hidden"><svg class="icon" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206.0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204.0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204.0l36.203 36.204c9.997 9.997 9.997 26.206.0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
+</button>
+<button class="tw-select-none
+tw-mx-2
+tw-block
+group-[.is-open]:tw-hidden
+print:!tw-hidden" disabled aria-hidden=true><svg class="icon" viewBox="0 0 512 512"><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8.0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button></div></div><pre style=counter-reset:codeblock class="tw-block tw-m-0 tw-p-0"><code id=codeblock-id-13 class="chroma
+!tw-block
+tw-p-0
+tw-m-0
+tw-transition-[max-height]
+tw-duration-500
+tw-ease-in-out
+group-[.is-closed]:!tw-max-h-0
+group-[.is-wrap]:tw-text-wrap
+tw-overflow-y-hidden
+tw-overflow-x-auto
+tw-scrollbar-thin"><span class=line><span class=cl><span class=c1># HELP vllm:time_to_first_token_seconds Histogram of time to first token in seconds.</span>
+</span></span><span class=line><span class=cl><span class=c1># TYPE vllm:time_to_first_token_seconds histogram</span>
+</span></span><span class=line><span class=cl><span class=c1># 桶数据：TTFT &lt;= 0.001s 的请求有 0 个</span>
+</span></span><span class=line><span class=cl>vllm:time_to_first_token_seconds_bucket<span class=o>{</span><span class=nv>le</span><span class=o>=</span><span class=s2>&#34;0.001&#34;</span>,model_name<span class=o>=</span><span class=s2>&#34;Qwen3-1.7B&#34;</span><span class=o>}</span> 0.0
+</span></span><span class=line><span class=cl><span class=c1># 桶数据：TTFT &lt;= 0.005s 的请求有 5 个</span>
+</span></span><span class=line><span class=cl>vllm:time_to_first_token_seconds_bucket<span class=o>{</span><span class=nv>le</span><span class=o>=</span><span class=s2>&#34;0.005&#34;</span>,model_name<span class=o>=</span><span class=s2>&#34;Qwen3-1.7B&#34;</span><span class=o>}</span> 5.0
+</span></span><span class=line><span class=cl><span class=c1># ... 中间省略更多桶 ...</span>
+</span></span><span class=line><span class=cl><span class=c1># 桶数据：TTFT &lt;= 正无穷 的请求有 100 个 (即总请求数)</span>
+</span></span><span class=line><span class=cl>vllm:time_to_first_token_seconds_bucket<span class=o>{</span><span class=nv>le</span><span class=o>=</span><span class=s2>&#34;+Inf&#34;</span>,model_name<span class=o>=</span><span class=s2>&#34;Qwen3-1.7B&#34;</span><span class=o>}</span> 100.0
+</span></span><span class=line><span class=cl><span class=c1># 统计汇总：总请求数 100</span>
+</span></span><span class=line><span class=cl>vllm:time_to_first_token_seconds_count<span class=o>{</span><span class=nv>model_name</span><span class=o>=</span><span class=s2>&#34;Qwen3-1.7B&#34;</span><span class=o>}</span> 100.0
+</span></span><span class=line><span class=cl><span class=c1># 统计汇总：所有请求的 TTFT 总和 2.5s (平均 TTFT = 2.5/100 = 0.025s)</span>
+</span></span><span class=line><span class=cl>vllm:time_to_first_token_seconds_sum<span class=o>{</span><span class=nv>model_name</span><span class=o>=</span><span class=s2>&#34;Qwen3-1.7B&#34;</span><span class=o>}</span> 2.5</span></span></code></pre></div></li></ul></li></ol><hr><h5 id=1-system-status--throughput-系统状态与吞吐 class=headerLink><a href=#1-system-status--throughput-%e7%b3%bb%e7%bb%9f%e7%8a%b6%e6%80%81%e4%b8%8e%e5%90%9e%e5%90%90 class=header-mark></a>1.1.5.1 1. System Status & Throughput (系统状态与吞吐)</h5><p>反映 vLLM 引擎的整体负载和处理能力。</p><div class=table-wrapper><table><thead><tr><th style=text-align:left>指标名称 (Metric Name)</th><th style=text-align:left>类型 (Type)</th><th style=text-align:left>统计频率 (Frequency)</th><th style=text-align:left>描述 (Description)</th></tr></thead><tbody><tr><td style=text-align:left><code>vllm:num_requests_running</code></td><td style=text-align:left>Gauge</td><td style=text-align:left>Per-Step</td><td style=text-align:left><strong>正在运行的请求数</strong>。<br>当前在 GPU 上进行推理的请求数量。</td></tr><tr><td style=text-align:left><code>vllm:num_requests_waiting</code></td><td style=text-align:left>Gauge</td><td style=text-align:left>Per-Step</td><td style=text-align:left><strong>等待队列中的请求数</strong>。<br>当前由于资源不足而在队列中排队的请求数量。</td></tr><tr><td style=text-align:left><code>vllm:num_preemptions_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left>Per-Request-Per-Step</td><td style=text-align:left><strong>抢占总次数</strong>。<br>请求因显存不足被挂起 (Preempt) 的累计次数。</td></tr><tr><td style=text-align:left><code>vllm:request_success_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>成功请求总数</strong>。<br>按结束原因 (<code>finished_reason</code>) 分类，如 <code>stop</code> (正常结束), <code>length</code> (超长), <code>abort</code> (客户端中断)。</td></tr><tr><td style=text-align:left><code>vllm:prompt_tokens_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left>Per-Request-Per-Step</td><td style=text-align:left><strong>Prompt Token 总数</strong>。<br>累计处理的输入 (Prefill) Token 数量。</td></tr><tr><td style=text-align:left><code>vllm:generation_tokens_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left>Per-Request-Per-Step</td><td style=text-align:left><strong>Generation Token 总数</strong>。<br>累计生成的输出 (Decode) Token 数量。</td></tr><tr><td style=text-align:left><code>vllm:iteration_tokens_total</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Step</td><td style=text-align:left><strong>每次调度 Token 数</strong>。<br>引擎每一次 Step 处理的 Token 总量分布 (Batch Size in Tokens)。</td></tr></tbody></table></div><h5 id=2-request-performance--stats-请求性能与统计 class=headerLink><a href=#2-request-performance--stats-%e8%af%b7%e6%b1%82%e6%80%a7%e8%83%bd%e4%b8%8e%e7%bb%9f%e8%ae%a1 class=header-mark></a>1.1.5.2 2. Request Performance & Stats (请求性能与统计)</h5><p>反映单个请求的延迟表现和属性分布，通常用于计算 P50/P90/P99 指标。</p><div class=table-wrapper><table><thead><tr><th style=text-align:left>指标名称 (Metric Name)</th><th style=text-align:left>类型 (Type)</th><th style=text-align:left>统计频率 (Frequency)</th><th style=text-align:left>描述 (Description)</th></tr></thead><tbody><tr><td style=text-align:left><code>vllm:e2e_request_latency_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>端到端延迟 (E2E Latency)</strong>。<br>请求从到达 API Server 到结束的总耗时。</td></tr><tr><td style=text-align:left><code>vllm:time_to_first_token_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request-Per-Step</td><td style=text-align:left><strong>首字延迟 (TTFT)</strong>。<br>从请求到达系统到生成第一个 Token 的时间分布。</td></tr><tr><td style=text-align:left><code>vllm:request_queue_time_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>排队时间 (Queue Time)</strong>。<br>请求在 Waiting 队列中等待调度的时间。</td></tr><tr><td style=text-align:left><code>vllm:request_inference_time_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>推理时间 (Inference Time)</strong>。<br>请求实际在 GPU 上运行的时间 (Running phase)。</td></tr><tr><td style=text-align:left><code>vllm:request_prefill_time_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>Prefill 阶段耗时</strong>。<br>处理 Prompt 输入阶段的耗时。</td></tr><tr><td style=text-align:left><code>vllm:request_decode_time_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>Decode 阶段耗时</strong>。<br>生成 Output Token 阶段的耗时。</td></tr><tr><td style=text-align:left><code>vllm:inter_token_latency_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request-Per-Step</td><td style=text-align:left><strong>Token 间延迟 (ITL)</strong>。<br>Decode 阶段生成相邻两个 Token 之间的时间间隔。</td></tr><tr><td style=text-align:left><code>vllm:request_time_per_output_token_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>平均 TPOT</strong>。<br>请求维度的平均每个 Output Token 生成时间 (Decode Time / Gen Tokens)。</td></tr><tr><td style=text-align:left><code>vllm:request_prompt_tokens</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>Prompt 长度分布</strong>。<br>请求输入的 Token 数量分布。</td></tr><tr><td style=text-align:left><code>vllm:request_generation_tokens</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>生成长度分布</strong>。<br>请求实际生成的 Token 数量分布。</td></tr><tr><td style=text-align:left><code>vllm:request_params_max_tokens</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>Max Tokens 参数分布</strong>。<br>用户请求中设置的 <code>max_tokens</code> 参数分布。</td></tr><tr><td style=text-align:left><code>vllm:request_max_num_generation_tokens</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>最大生成 Token 数分布</strong>。<br>请求实际允许生成的最大 Token 数。</td></tr><tr><td style=text-align:left><code>vllm:request_params_n</code></td><td style=text-align:left>Histogram</td><td style=text-align:left>Per-Request</td><td style=text-align:left><strong>N 参数分布</strong>。<br>用户请求中设置的 <code>n</code> (返回序列个数) 参数分布。</td></tr></tbody></table></div><h5 id=3-cache--resources-缓存与资源 class=headerLink><a href=#3-cache--resources-%e7%bc%93%e5%ad%98%e4%b8%8e%e8%b5%84%e6%ba%90 class=header-mark></a>1.1.5.3 3. Cache & Resources (缓存与资源)</h5><p>反映 GPU 显存（特别是 KV Cache）和 CPU 资源的使用情况。</p><div class=table-wrapper><table><thead><tr><th style=text-align:left>指标名称 (Metric Name)</th><th style=text-align:left>类型 (Type)</th><th style=text-align:left>统计频率 (Frequency)</th><th style=text-align:left>描述 (Description)</th></tr></thead><tbody><tr><td style=text-align:left><code>vllm:kv_cache_usage_perc</code></td><td style=text-align:left>Gauge</td><td style=text-align:left>Per-Step</td><td style=text-align:left><strong>KV Cache 使用率</strong>。<br>GPU KV Cache 的使用比例 (0.0 - 1.0)。1.0 表示显存耗尽。</td></tr><tr><td style=text-align:left><code>vllm:prefix_cache_queries_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left>Per-Step</td><td style=text-align:left><strong>Prefix Cache 查询总数</strong>。<br>尝试查询公共前缀缓存的 Token 总数。</td></tr><tr><td style=text-align:left><code>vllm:prefix_cache_hits_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left>Per-Step</td><td style=text-align:left><strong>Prefix Cache 命中总数</strong>。<br>成功命中公共前缀缓存的 Token 总数。</td></tr><tr><td style=text-align:left><code>vllm:cache_config_info</code></td><td style=text-align:left>Gauge</td><td style=text-align:left></td><td style=text-align:left><strong>Cache 配置信息</strong>。<br>记录了 Block Size, GPU Memory Utilization 等配置。</td></tr><tr><td style=text-align:left><code>process_resident_memory_bytes</code></td><td style=text-align:left>Gauge</td><td style=text-align:left></td><td style=text-align:left><strong>进程驻留内存</strong>。<br>vLLM 进程占用的物理内存大小 (Bytes)。</td></tr><tr><td style=text-align:left><code>process_virtual_memory_bytes</code></td><td style=text-align:left>Gauge</td><td style=text-align:left></td><td style=text-align:left><strong>进程虚拟内存</strong>。<br>vLLM 进程占用的虚拟内存大小 (Bytes)。</td></tr><tr><td style=text-align:left><code>process_cpu_seconds_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left></td><td style=text-align:left><strong>CPU 时间</strong>。<br>进程消耗的 CPU 总时间 (User + System)。</td></tr><tr><td style=text-align:left><code>process_open_fds</code></td><td style=text-align:left>Gauge</td><td style=text-align:left></td><td style=text-align:left><strong>打开文件描述符</strong>。<br>进程当前打开的文件描述符数量。</td></tr><tr><td style=text-align:left><code>python_gc_objects_collected_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left></td><td style=text-align:left><strong>GC 对象回收数</strong>。<br>Python 垃圾回收器回收的对象总数。</td></tr><tr><td style=text-align:left><code>python_gc_collections_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left></td><td style=text-align:left><strong>GC 回收次数</strong>。<br>Python 垃圾回收器执行回收的次数。</td></tr></tbody></table></div><h5 id=4-http-metrics-api-server class=headerLink><a href=#4-http-metrics-api-server class=header-mark></a>1.1.5.4 4. HTTP Metrics (API Server)</h5><p>FastAPI/Uvicorn 提供的 HTTP 层面的监控指标。</p><div class=table-wrapper><table><thead><tr><th style=text-align:left>指标名称 (Metric Name)</th><th style=text-align:left>类型 (Type)</th><th style=text-align:left>描述 (Description)</th></tr></thead><tbody><tr><td style=text-align:left><code>http_requests_total</code></td><td style=text-align:left>Counter</td><td style=text-align:left><strong>HTTP 请求总数</strong>。<br>按 Method, Status, Handler 分类。</td></tr><tr><td style=text-align:left><code>http_request_duration_highr_seconds</code></td><td style=text-align:left>Histogram</td><td style=text-align:left><strong>HTTP 请求耗时</strong>。<br>高精度的请求处理耗时分布。</td></tr></tbody></table></div><hr><h3 id=vllm-v1-核心类详解 class=headerLink><a href=#vllm-v1-%e6%a0%b8%e5%bf%83%e7%b1%bb%e8%af%a6%e8%a7%a3 class=header-mark></a>1.2 vLLM V1 核心类详解</h3><p>以下是 vLLM V1 架构中与 Request 处理和 Metrics 计算密切相关的核心类。</p><h4 id=1-outputprocessor class=headerLink><a href=#1-outputprocessor class=header-mark></a>1.2.1 1. OutputProcessor</h4><ul><li><strong>文件位置</strong>: <code>vllm/v1/engine/output_processor.py</code></li><li><strong>功能说明</strong>: 负责将 <code>EngineCore</code> 输出的 <code>EngineCoreOutputs</code> 转换为面向用户的 <code>RequestOutput</code>。它是 Metrics 计算的核心场所。</li><li><strong>核心方法</strong>:<ul><li><code>process_outputs</code>: 主循环，遍历所有 <code>EngineCoreOutput</code>。它调用 <code>_update_stats_from_output</code> 更新实时指标，调用 <code>detokenizer</code> 解码文本，并生成 <code>RequestOutput</code>。</li><li><code>_update_stats_from_finished</code>: 当请求结束时被调用，计算最终的 E2E Latency、Decode Time 等指标。</li></ul></li><li><strong>与 Metrics 关系</strong>:<ul><li>直接计算 Time-Related Metrics (<code>e2e_request_latency_seconds</code>, <code>time_to_first_token_seconds</code>, <code>time_per_output_token_seconds</code>)。</li><li>维护 <code>IterationStats</code> 对象。</li></ul></li></ul><h4 id=2-openaiserving-及子类 class=headerLink><a href=#2-openaiserving-%e5%8f%8a%e5%ad%90%e7%b1%bb class=header-mark></a>1.2.2 2. OpenAIServing (及子类)</h4><ul><li><strong>文件位置</strong>: <code>vllm/entrypoints/openai/serving_engine.py</code> / <code>serving_chat.py</code></li><li><strong>功能说明</strong>: OpenAI API 协议的实现层。负责接收 HTTP 请求，解析参数，并将其转换为 vLLM 内部的 Request 对象提交给 Engine。</li><li><strong>核心方法</strong>:<ul><li><code>create_chat_completion</code> (<code>OpenAIServingChat</code>): 处理 <code>/v1/chat/completions</code> 请求的入口。</li><li><code>generate</code> (<code>OpenAIServing</code>): 将解析后的请求提交给 <code>AsyncLLM</code>。</li></ul></li><li><strong>与 Metrics 关系</strong>:<ul><li>请求的 <code>arrival_time</code> 通常在此层或 API Server 入口处被标记，作为 E2E Latency 计算的起点。</li></ul></li></ul><h4 id=3-asyncllm class=headerLink><a href=#3-asyncllm class=header-mark></a>1.2.3 3. AsyncLLM</h4><ul><li><strong>文件位置</strong>: <code>vllm/v1/engine/async_llm.py</code></li><li><strong>功能说明</strong>: vLLM V1 引擎的异步客户端。它管理着后台的 <code>EngineCore</code> 进程/线程，并提供异步接口供前端调用。</li><li><strong>核心方法</strong>:<ul><li><code>generate</code>: 提交请求到 <code>EngineCore</code>。</li><li><code>_run_output_handler</code>: 一个后台 Loop，不断从 <code>EngineCore</code> 获取输出，并调用 <code>OutputProcessor.process_outputs</code> 处理结果。</li></ul></li><li><strong>与 Metrics 关系</strong>:<ul><li>它是连接 API 层和 Core 层的桥梁。<code>_run_output_handler</code> 驱动了 Metrics 的计算流程。</li></ul></li></ul><h4 id=4-iterationstats class=headerLink><a href=#4-iterationstats class=header-mark></a>1.2.4 4. IterationStats</h4><ul><li><strong>文件位置</strong>: <code>vllm/v1/metrics/stats.py</code></li><li><strong>功能说明</strong>: 一个数据容器和计算器，用于跟踪当前迭代（Iteration）和请求（Request）的统计信息。</li><li><strong>核心方法</strong>:<ul><li><code>update_from_output</code>: 根据单步输出更新请求状态（如 Token 计数、First Token Latency）。</li><li><code>update_from_finished_request</code>: 在请求结束时汇总统计信息（如 Inference Time, Queued Time）。</li></ul></li><li><strong>与 Metrics 关系</strong>:<ul><li>封装了所有 Time-Related Metrics 的具体计算公式（如 <code>now - arrival_time</code>）。</li></ul></li></ul><h4 id=5-scheduler class=headerLink><a href=#5-scheduler class=header-mark></a>1.2.5 5. Scheduler</h4><ul><li><strong>文件位置</strong>: <code>vllm/v1/core/sched/scheduler.py</code></li><li><strong>功能说明</strong>: 调度器。决定下一轮迭代运行哪些请求，分配 KV Cache，处理抢占等。</li><li><strong>核心方法</strong>:<ul><li><code>schedule</code>: 执行调度策略（如 FCFS, Priority），返回 <code>SchedulerOutput</code>。</li><li><code>make_stats</code>: 生成调度器状态统计。</li></ul></li><li><strong>与 Metrics 关系</strong>:<ul><li>直接提供 Capacity Metrics (<code>num_requests_running</code>, <code>num_requests_waiting</code>, <code>gpu_cache_usage_perc</code>)。</li></ul></li></ul><h4 id=6-enginecore class=headerLink><a href=#6-enginecore class=header-mark></a>1.2.6 6. EngineCore</h4><ul><li><strong>文件位置</strong>: <code>vllm/v1/engine/core.py</code></li><li><strong>功能说明</strong>: 引擎的核心循环，通常运行在独立进程中。负责协调 Scheduler 和 ModelExecutor。</li><li><strong>核心方法</strong>:<ul><li><code>step</code>: 执行一步完整的推理：调度 -> 模型执行 -> 更新状态。</li></ul></li><li><strong>与 Metrics 关系</strong>:<ul><li>每一轮 <code>step</code> 都会生成 <code>EngineCoreOutputs</code>，其中包含了 Metrics 计算所需的原始数据（如 Token 生成时间戳、Token ID）。</li></ul></li></ul></div><div class=post-footer id=post-footer><div class=post-info><div class=post-info-line><div class=post-info-mod><span>更新于 2025-12-10</span></div><div class=post-info-license></div></div><div class="post-info-line print:!tw-hidden"><div class=post-info-md><span><a class=link-to-mardown href=/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/index.md target=_blank rel="noopener noreferrer">阅读原始文档</a></span></div><div class=post-info-share><button title="分享到 Twitter" data-sharer=twitter data-url=https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/ data-title="vLLM Metrics 快速开始" data-hashtags=AI,vLLM,Metrics><svg class="icon" viewBox="0 0 512 512"><path d="M459.37 151.716c.325 4.548.325 9.097.325 13.645.0 138.72-105.583 298.558-298.558 298.558-59.452.0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055.0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421.0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391.0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04.0-57.828 46.782-104.934 104.934-104.934 30.213.0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg></button><button title="分享到 Facebook" data-sharer=facebook data-url=https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/ data-hashtag=AI><svg class="icon" viewBox="0 0 512 512"><path d="M504 256C504 119 393 8 256 8S8 119 8 256c0 123.78 90.69 226.38 209.25 245V327.69h-63V256h63v-54.64c0-62.15 37-96.48 93.67-96.48 27.14.0 55.52 4.84 55.52 4.84v61h-31.28c-30.8.0-40.41 19.12-40.41 38.73V256h68.78l-11 71.69h-57.78V501C413.31 482.38 504 379.78 504 256z"/></svg></button><button title="分享到 微博" data-sharer=weibo data-url=https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/ data-title="vLLM Metrics 快速开始"><svg class="icon" viewBox="0 0 512 512"><path d="M407 177.6c7.6-24-13.4-46.8-37.4-41.7-22 4.8-28.8-28.1-7.1-32.8 50.1-10.9 92.3 37.1 76.5 84.8-6.8 21.2-38.8 10.8-32-10.3zM214.8 446.7C108.5 446.7.0 395.3.0 310.4c0-44.3 28-95.4 76.3-143.7C176 67 279.5 65.8 249.9 161c-4 13.1 12.3 5.7 12.3 6 79.5-33.6 140.5-16.8 114 51.4-3.7 9.4 1.1 10.9 8.3 13.1 135.7 42.3 34.8 215.2-169.7 215.2zm143.7-146.3c-5.4-55.7-78.5-94-163.4-85.7-84.8 8.6-148.8 60.3-143.4 116s78.5 94 163.4 85.7c84.8-8.6 148.8-60.3 143.4-116zM347.9 35.1c-25.9 5.6-16.8 43.7 8.3 38.3 72.3-15.2 134.8 52.8 111.7 124-7.4 24.2 29.1 37 37.4 12 31.9-99.8-55.1-195.9-157.4-174.3zm-78.5 311c-17.1 38.8-66.8 60-109.1 46.3-40.8-13.1-58-53.4-40.3-89.7 17.7-35.4 63.1-55.4 103.4-45.1 42 10.8 63.1 50.2 46 88.5zm-86.3-30c-12.9-5.4-30 .3-38 12.9-8.3 12.9-4.3 28 8.6 34 13.1 6 30.8.3 39.1-12.9 8-13.1 3.7-28.3-9.7-34zm32.6-13.4c-5.1-1.7-11.4.6-14.3 5.4-2.9 5.1-1.4 10.6 3.7 12.9 5.1 2 11.7-.3 14.6-5.4 2.8-5.2 1.1-10.9-4-12.9z"/></svg></button><button title="分享到 Telegram" data-sharer=telegram data-url=https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/ data-title="vLLM Metrics 快速开始" data-web><svg class="icon" viewBox="0 0 448 512"><path d="M446.7 98.6l-67.6 318.8c-5.1 22.5-18.4 28.1-37.3 17.5l-103-75.9-49.7 47.8c-5.5 5.5-10.1 10.1-20.7 10.1l7.4-104.9 190.9-172.5c8.3-7.4-1.8-11.5-12.9-4.1L117.8 284 16.2 252.2c-22.1-6.9-22.5-22.1 4.6-32.7L418.2 66.4c18.4-6.9 34.5 4.1 28.5 32.2z"/></svg></button></div></div></div><div class=post-info-more><section class=post-tags><svg class="icon" viewBox="0 0 640 512"><path d="M497.941 225.941 286.059 14.059A48 48 0 00252.118.0H48C21.49.0.0 21.49.0 48v204.118a48 48 0 0014.059 33.941l211.882 211.882c18.744 18.745 49.136 18.746 67.882.0l204.118-204.118c18.745-18.745 18.745-49.137.0-67.882zM112 160c-26.51.0-48-21.49-48-48s21.49-48 48-48 48 21.49 48 48-21.49 48-48 48zm513.941 133.823L421.823 497.941c-18.745 18.745-49.137 18.745-67.882.0l-.36-.36L527.64 323.522c16.999-16.999 26.36-39.6 26.36-63.64s-9.362-46.641-26.36-63.64L331.397.0h48.721a48 48 0 0133.941 14.059l211.882 211.882c18.745 18.745 18.745 49.137.0 67.882z"/></svg>&nbsp;<a href=/tags/ai/>AI</a>,&nbsp;<a href=/tags/vllm/>VLLM</a>,&nbsp;<a href=/tags/metrics/>Metrics</a></section><section class=print:!tw-hidden><span><button class="tw-text-fgColor-link-muted hover:tw-text-fgColor-link-muted-hover" onclick=window.history.back()>返回</button></span>&nbsp;|&nbsp;<span><a href=/>主页</a></span></section></div><div class="post-nav print:tw-hidden"><a href=/posts/python/logging-%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8/ class=prev rel=prev title="logging 快速入门"><svg class="icon" viewBox="0 0 256 512"><path d="M31.7 239l136-136c9.4-9.4 24.6-9.4 33.9.0l22.6 22.6c9.4 9.4 9.4 24.6.0 33.9L127.9 256l96.4 96.4c9.4 9.4 9.4 24.6.0 33.9L201.7 409c-9.4 9.4-24.6 9.4-33.9.0l-136-136c-9.5-9.4-9.5-24.6-.1-34z"/></svg>logging 快速入门</a>
+<a href=/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/ class=next rel=next title="SGLang Metrics 快速开始">SGLang Metrics 快速开始<svg class="icon" viewBox="0 0 256 512"><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9.0l-22.6-22.6c-9.4-9.4-9.4-24.6.0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6.0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9.0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></a></div></div></article></main><footer class=footer><div class=footer-container><div class=footer-line>由 <a href=https://gohugo.io/ target=_blank rel="noopener noreferrer" title="Hugo 0.153.2">Hugo</a> 强力驱动&nbsp;|&nbsp;主题 - <a href=https://github.com/HEIGE-PCloud/DoIt target=_blank rel="noopener noreferrer" title="DoIt 0.4.2"><svg class="icon" viewBox="0 0 576 512"><path d="M402.3 344.9l32-32c5-5 13.7-1.5 13.7 5.7V464c0 26.5-21.5 48-48 48H48c-26.5.0-48-21.5-48-48V112c0-26.5 21.5-48 48-48h273.5c7.1.0 10.7 8.6 5.7 13.7l-32 32c-1.5 1.5-3.5 2.3-5.7 2.3H48v352h352V350.5c0-2.1.8-4.1 2.3-5.6zm156.6-201.8L296.3 405.7l-90.4 10c-26.2 2.9-48.5-19.2-45.6-45.6l10-90.4L432.9 17.1c22.9-22.9 59.9-22.9 82.7.0l43.2 43.2c22.9 22.9 22.9 60 .1 82.8zM460.1 174 402 115.9 216.2 301.8l-7.3 65.3 65.3-7.3L460.1 174zm64.8-79.7-43.2-43.2c-4.1-4.1-10.8-4.1-14.8.0L436 82l58.1 58.1 30.9-30.9c4-4.2 4-10.8-.1-14.9z"/></svg> DoIt</a></div><div class=footer-line><svg class="icon" viewBox="0 0 512 512"><path d="M256 8C119.033 8 8 119.033 8 256s111.033 248 248 248 248-111.033 248-248S392.967 8 256 8zm0 448c-110.532.0-2e2-89.451-2e2-2e2.0-110.531 89.451-2e2 2e2-2e2 110.532.0 2e2 89.451 2e2 2e2.0 110.532-89.451 2e2-2e2 2e2zm107.351-101.064c-9.614 9.712-45.53 41.396-104.065 41.396-82.43.0-140.484-61.425-140.484-141.567.0-79.152 60.275-139.401 139.762-139.401 55.531.0 88.738 26.62 97.593 34.779a11.965 11.965.0 011.936 15.322l-18.155 28.113c-3.841 5.95-11.966 7.282-17.499 2.921-8.595-6.776-31.814-22.538-61.708-22.538-48.303.0-77.916 35.33-77.916 80.082.0 41.589 26.888 83.692 78.277 83.692 32.657.0 56.843-19.039 65.726-27.225 5.27-4.857 13.596-4.039 17.82 1.738l19.865 27.17a11.947 11.947.0 01-1.152 15.518z"/></svg>2023 - 2025<span class=author>&nbsp;<a href=https://www.65811786.xyz/ target=_blank rel="noopener noreferrer">小饭</a></span>&nbsp;|&nbsp;<span class=license><a rel="license external nofollow noopener noreferrer" href=https://creativecommons.org/licenses/by-nc/4.0/ target=_blank>CC BY-NC 4.0</a></span></div><div class=footer-line></div><div class=footer-line></div></div></footer><div class="print:!tw-hidden tw-flex tw-flex-col tw-fixed tw-right-4 tw-bottom-4 tw-gap-2"><a href=#back-to-top id=back-to-top-button class="tw-transition-opacity tw-opacity-0 tw-block tw-bg-bgColor-secondary tw-rounded-full" style=padding:.6rem;line-height:1.3rem;font-size:1rem title=回到顶部><svg class="icon" viewBox="0 0 448 512"><path d="M34.9 289.5l-22.2-22.2c-9.4-9.4-9.4-24.6.0-33.9L207 39c9.4-9.4 24.6-9.4 33.9.0l194.3 194.3c9.4 9.4 9.4 24.6.0 33.9L413 289.4c-9.5 9.5-25 9.3-34.3-.4L264 168.6V456c0 13.3-10.7 24-24 24h-32c-13.3.0-24-10.7-24-24V168.6L69.2 289.1c-9.3 9.8-24.8 10-34.3.4z"/></svg>
+</a><button id=toc-drawer-button class="tw-block tw-bg-bgColor-secondary tw-rounded-full md:tw-hidden" style=padding:.6rem;line-height:1.3rem;font-size:1rem>
+<svg class="icon" viewBox="0 0 448 512"><path d="M16 132h416c8.837.0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163.0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837.0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837.0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button></div><script type=module>
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: (window.theme === 'dark' ? 'dark' : 'default') });
+</script><script type=module>
+        (async () => {
+            const supportSpeculationRules = HTMLScriptElement.supports && HTMLScriptElement.supports("speculationrules");
+            if (!supportSpeculationRules) {
+              await import("\/lib\/instant.page\/instantpage.min.js");
+            }
+        })();
+    </script><script>window.config={"autocomplete.min.js":"/lib/autocomplete/autocomplete.min.js",comment:{},"fuse.min.js":"/lib/fuse/fuse.min.js",search:{distance:100,findAllMatches:!1,fuseIndexURL:"/index.json",highlightTag:"em",ignoreFieldNorm:!1,ignoreLocation:!0,isCaseSensitive:!1,location:0,maxResultLength:10,minMatchCharLength:4,noResultsFound:"没有找到结果",snippetLength:50,threshold:.05,type:"fuse",useExtendedSearch:!1},sharerjs:!0,table:{sort:!0}}</script><script src=/lib/tablesort/tablesort.min.js></script><script src=/lib/sharer/sharer.min.js></script><script src=/js/theme.min.js defer></script><script type=speculationrules>
+  {
+    "prerender": [
+      {
+        "where": { "href_matches": "/*" },
+        "eagerness": "moderate"
+      }
+    ]
+  }
+</script></body></html>
