@@ -1,21 +1,21 @@
 # vLLM Metrics 快速开始
 
 
-调研目标
-vLLM
-e2e_request_latency_seconds
-vllm:time_to_first_token_seconds
-vllm:num_requests_running
-vllm:num_requests_waiting
-vllm:time_per_output_token_seconds
-vllm:gpu_cache_usage_perc
-vllm:request_inference_time_seconds
+## 核心关注指标
 
-## vLLM
+> [!NOTE] 调研目标
+> 本文旨在深入分析 vLLM (V1 Engine) 的核心指标计算逻辑，重点关注以下关键指标的实现原理与代码位置：
+> *   **`vllm:e2e_request_latency_seconds`**: 端到端延迟
+> *   **`vllm:time_to_first_token_seconds`**: 首字延迟 (TTFT)
+> *   **`vllm:time_per_output_token_seconds`**: Token 生成速度 (TPOT)
+> *   **`vllm:num_requests_running`**: 并发请求数
+> *   **`vllm:gpu_cache_usage_perc`**: 显存 KV Cache 使用率
 
-### Metrics 计算详解 (vLLM V1 Engine)
+## Metrics 计算详解 (vLLM V1 Engine)
 
-以下分析基于 vLLM V1 引擎架构 (`vllm/v1`)，vLLM 版本为 0.11.0， 发布于 2025 年 10月 3日。
+> [!IMPORTANT] 版本说明
+> 以下分析基于 **vLLM V1 引擎架构** (`vllm/v1`)，版本 **0.11.0** (发布于 2025 年 10月 3日)。
+> *注意：vLLM V1 是 vLLM 的下一代架构，与 V0 (AsyncLLMEngine) 在实现上有显著差异。*
 
 #### 1. /v1/chat/completions 接口调用流程图
 
@@ -506,18 +506,19 @@ def make_stats(self) -> SchedulerStats:
     *   记录 Draft Tokens 的数量和 Accepted Tokens 的数量，用于计算投机采样的加速比和接受率。
 
 
-#### 5.指标梳理
+#### 5. 指标梳理
 
 基于 Prometheus 指标输出，将 vLLM 的指标归纳整理如下。这些指标涵盖了系统负载、请求延迟、Token 吞吐以及资源使用情况。
 
-**分类说明**：
-*   **Batch/System**: 描述整个 vLLM 实例或当前 Batch 的状态。
-*   **Request**: 描述单个请求的统计分布（通常以 Histogram 形式存在）。
-*   **Resource**: 描述计算和存储资源的使用情况。
+> [!NOTE] 分类说明
+> *   **Batch/System**: 描述整个 vLLM 实例或当前 Batch 的状态。
+> *   **Request**: 描述单个请求的统计分布（通常以 Histogram 形式存在）。
+> *   **Resource**: 描述计算和存储资源的使用情况。
 
-**Prometheus 指标类型说明**：
+##### Prometheus 指标类型说明
 
-在阅读下列指标时，理解 Prometheus 的三种核心数据类型至关重要：
+> [!WARNING] 理解 Prometheus 数据类型
+> 在阅读下列指标时，理解 Prometheus 的三种核心数据类型至关重要：
 
 1.  **Counter (计数器)**
     *   **特点**: **只增不减**的累加数值。

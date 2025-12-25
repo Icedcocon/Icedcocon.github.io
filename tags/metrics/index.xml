@@ -1,24 +1,17 @@
-<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>Metrics - 标签 - 小饭的技术站</title><link>https://www.65811786.xyz/tags/metrics/</link><description>Metrics - 标签 - 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Thu, 11 Dec 2025 16:12:40 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/tags/metrics/" rel="self" type="application/rss+xml"/><item><title>SGLang Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Thu, 11 Dec 2025 16:12:40 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<p>调研目标
-SGLang
-e2e_request_latency_seconds
-sglang:time_to_first_token_seconds
-sglang:num_running_reqs
-sglang:num_queue_reqs
-sglang:time_per_output_token_seconds</p>
-<h2 id="sglang" class="headerLink">
-    <a href="#sglang" class="header-mark"></a>3 SGLang</h2><h3 id="metrics-计算详解-sglang-runtime" class="headerLink">
-    <a href="#metrics-%e8%ae%a1%e7%ae%97%e8%af%a6%e8%a7%a3-sglang-runtime" class="header-mark"></a>3.1 Metrics 计算详解 (SGLang Runtime)</h3><p>以下分析基于 SGLang Runtime (SRT) 架构。SGLang 版本为 0.5.4， 发布于 2025 年 10月 26日。</p>
-<h4 id="1-v1chatcompletions-接口调用流程图" class="headerLink">
-    <a href="#1-v1chatcompletions-%e6%8e%a5%e5%8f%a3%e8%b0%83%e7%94%a8%e6%b5%81%e7%a8%8b%e5%9b%be" class="header-mark"></a>3.1.1 1. /v1/chat/completions 接口调用流程图</h4><p><strong>Metrics 路由注册与采集机制</strong>
-在 <code>launch_server</code> 启动 FastAPI 服务时，<code>lifespan</code> 函数调用 <code>add_prometheus_middleware</code> (<code>sglang/srt/utils/common.py</code>) 注册 <code>/metrics</code> 路由。该路由由 <code>prometheus_client</code> 的 ASGI App 处理，通过 <code>MultiProcessCollector</code> 实现多进程指标聚合。</p>]]></description></item><item><title>vLLM Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Wed, 10 Dec 2025 08:33:47 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<p>调研目标
-vLLM
-e2e_request_latency_seconds
-vllm:time_to_first_token_seconds
-vllm:num_requests_running
-vllm:num_requests_waiting
-vllm:time_per_output_token_seconds
-vllm:gpu_cache_usage_perc
-vllm:request_inference_time_seconds</p>
-<h2 id="vllm" class="headerLink">
-    <a href="#vllm" class="header-mark"></a>3 vLLM</h2><h3 id="metrics-计算详解-vllm-v1-engine" class="headerLink">
-    <a href="#metrics-%e8%ae%a1%e7%ae%97%e8%af%a6%e8%a7%a3-vllm-v1-engine" class="header-mark"></a>3.1 Metrics 计算详解 (vLLM V1 Engine)</h3><p>以下分析基于 vLLM V1 引擎架构 (<code>vllm/v1</code>)，vLLM 版本为 0.11.0， 发布于 2025 年 10月 3日。</p>]]></description></item></channel></rss>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>Metrics - 标签 - 小饭的技术站</title><link>https://www.65811786.xyz/tags/metrics/</link><description>Metrics - 标签 - 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Thu, 11 Dec 2025 16:12:40 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/tags/metrics/" rel="self" type="application/rss+xml"/><item><title>SGLang Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Thu, 11 Dec 2025 16:12:40 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/sglang-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<h2 id="调研目标" class="headerLink">
+    <a href="#%e8%b0%83%e7%a0%94%e7%9b%ae%e6%a0%87" class="header-mark"></a>5 调研目标</h2><div class="details admonition note open">
+    <div class="details-summary admonition-title">
+        <span class="icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg></span>核心关注指标<span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+    </div>
+    <div class="details-content">
+        <div class="admonition-content"><p>本次调研主要关注以下 SGLang 核心指标，涵盖了延迟（Latency）与容量（Capacity）两个维度：</p>]]></description></item><item><title>vLLM Metrics 快速开始</title><link>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Wed, 10 Dec 2025 08:33:47 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/nvidia/vllm-metrics-%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<h2 id="核心关注指标" class="headerLink">
+    <a href="#%e6%a0%b8%e5%bf%83%e5%85%b3%e6%b3%a8%e6%8c%87%e6%a0%87" class="header-mark"></a>5 核心关注指标</h2><div class="details admonition note open">
+    <div class="details-summary admonition-title">
+        <span class="icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg></span>调研目标<span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+    </div>
+    <div class="details-content">
+        <div class="admonition-content"><p>本文旨在深入分析 vLLM (V1 Engine) 的核心指标计算逻辑，重点关注以下关键指标的实现原理与代码位置：</p>]]></description></item></channel></rss>

@@ -1,132 +1,120 @@
 # SGLang Metrics 快速开始
 
 
-调研目标
-SGLang
-e2e_request_latency_seconds
-sglang:time_to_first_token_seconds
-sglang:num_running_reqs
-sglang:num_queue_reqs
-sglang:time_per_output_token_seconds
+## 调研目标
 
-## SGLang
+> [!NOTE] 核心关注指标
+> 本次调研主要关注以下 SGLang 核心指标，涵盖了延迟（Latency）与容量（Capacity）两个维度：
+>
+> *   **`sglang:e2e_request_latency_seconds`**: 端到端请求延迟
+> *   **`sglang:time_to_first_token_seconds`**: 首字延迟 (TTFT)
+> *   **`sglang:time_per_output_token_seconds`**: Token 生成速度 (TPOT/ITL)
+> *   **`sglang:num_running_reqs`**: 系统并发请求数
+> *   **`sglang:num_queue_reqs`**: 等待队列请求数
+
+## SGLang Metrics 详解
 
 ### Metrics 计算详解 (SGLang Runtime)
 
-以下分析基于 SGLang Runtime (SRT) 架构。SGLang 版本为 0.5.4， 发布于 2025 年 10月 26日。
+> [!IMPORTANT] 版本说明
+> 以下分析基于 SGLang Runtime (SRT) 架构。
+> *   **SGLang 版本**: 0.5.4
+> *   **发布日期**: 2025 年 10 月 26 日
 
 #### 1. /v1/chat/completions 接口调用流程图
 
 **Metrics 路由注册与采集机制**
+
 在 `launch_server` 启动 FastAPI 服务时，`lifespan` 函数调用 `add_prometheus_middleware` (`sglang/srt/utils/common.py`) 注册 `/metrics` 路由。该路由由 `prometheus_client` 的 ASGI App 处理，通过 `MultiProcessCollector` 实现多进程指标聚合。
+
 *   **Collector (`sglang/srt/metrics/collector.py`)**: 定义了 `TokenizerMetricsCollector` 和 `SchedulerMetricsCollector` 类，封装了 Prometheus 的 Counter/Gauge/Histogram。
 *   **TokenizerManager (`sglang/srt/managers/tokenizer_manager.py`)**: 运行在主进程，持有 `TokenizerMetricsCollector`，负责记录 E2E Latency、TTFT 等请求级指标。
 
-SGLang 采用多进程架构（TokenizerManager 主进程 + Scheduler 子进程 + Detokenizer 子进程 + Model Workers），Metric 采集面临多进程数据聚合的问题。
+> [!WARNING] 多进程架构下的 Metrics 挑战
+> SGLang 采用多进程架构（TokenizerManager 主进程 + Scheduler 子进程 + Detokenizer 子进程 + Model Workers），Metric 采集面临多进程数据聚合的问题。
 
-1.  **进程分工与代码位置**:
-    *   **主进程 (TokenizerManager)**:
-        *   **代码**: `sglang/srt/managers/tokenizer_manager.py`
-        *   **职责**: 处理 HTTP 请求、分词 (Tokenize)、接收 Detokenizer 结果并返回响应。
-        *   **Metrics**: 持有 `TokenizerMetricsCollector`，负责记录 **Request 级别** 的指标（如 `sglang:e2e_request_latency_seconds`, `sglang:ttft_seconds`）。
-    *   **子进程 (Scheduler)**:
-        *   **代码**: `sglang/srt/managers/scheduler.py` (入口函数 `run_scheduler_process`)。
-        *   **职责**: 接收 Tokenized 请求，进行 Batch 调度，管理 KV Cache，驱动 Model Runner 执行推理，并将生成的 Token IDs 发送给 Detokenizer。
-        *   **Metrics**: 混入 `SchedulerMetricsMixin` (`sglang/srt/managers/scheduler_metrics_mixin.py`)，持有 `SchedulerMetricsCollector`，负责记录 **System 级别** 的指标（如 `sglang:token_usage`, `sglang:num_running_reqs`）。
-    *   **子进程 (DetokenizerManager)**:
-        *   **代码**: `sglang/srt/managers/detokenizer_manager.py` (入口函数 `run_detokenizer_process`)。
-        *   **职责**: 接收 Scheduler 生成的 Token IDs，解码为文本 (Detokenize)，并将最终结果或流式增量发送回 TokenizerManager。
-        *   **Metrics**: 通常不直接负责核心指标采集，但其处理延迟会包含在 E2E Latency 中。
+**1. 进程分工与代码位置**
 
-2.  **进程间交互 (IPC)**:
-    *   **控制流**: 形成闭环 `TokenizerManager` -> (ZMQ PUSH) -> `Scheduler` -> (ZMQ PUSH) -> `DetokenizerManager` -> (ZMQ PUSH) -> `TokenizerManager`。
-    *   **数据流**: Metric 数据 **不通过** ZMQ 回传。主进程和子进程各自独立计算指标，并写入同一个共享存储后端。
-
-3.  **共享目录 (PROMETHEUS_MULTIPROC_DIR) 技术细节**:
-    *   **实现原理**: 利用 `prometheus_client` 的多进程支持 (`multiprocess` 模块)。
-    *   **目录创建**: 在 `sglang/srt/utils/common.py` 的 `set_prometheus_multiproc_dir` 函数中，系统使用 `tempfile.TemporaryDirectory` 创建一个临时目录（并非固定的 Linux 系统目录，除非手动指定）。
-    *   **环境传递**: 该目录的路径被写入环境变量 `PROMETHEUS_MULTIPROC_DIR`。Python 的 `multiprocessing` 机制确保 Scheduler 子进程继承该环境变量，从而指向同一个临时目录。
-    *   **存储格式**: 每个进程在该目录下创建内存映射文件 (`.db` files)，Prometheus Client 直接对文件进行原子写操作，无需进程锁。
-
-4.  **Controller (/metrics 后端)**:
-    *   **路由注册**: 在 `launch_server.py` 启动时，调用 `add_prometheus_middleware`。
-    *   **核心组件**: 创建 `prometheus_client.make_asgi_app`，并配置 `registry` 使用 `multiprocess.MultiProcessCollector`。
-    *   **聚合逻辑**: 当外部系统（如 Prometheus Server）访问 `/metrics` 接口时，`MultiProcessCollector` 会扫描共享目录下的所有 `.db` 文件，聚合主进程和所有子进程的 Counter/Gauge/Histogram 数据，最终返回统一的 Metrics 文本响应。
-
-    ```python
-    # sglang/srt/metrics/collector.py
-
-    # 示例：E2E Latency Histogram
-    self.histogram_e2e_request_latency = Histogram(
-        "sglang:e2e_request_latency_seconds",
-        "End-to-end request latency in seconds.",
-        labelnames=labels,
-        buckets=[0.1, 0.5, 1.0, ..., 60.0], # Buckets 定义
-        registry=registry,
-    )
-    ```
-
-为了实现高吞吐和低延迟，SGLang 采用了多进程架构，进程间通过 **ZMQ (ZeroMQ)** 进行通信。以下是核心的通信链路详解。
-
-**特别说明：Metrics 数据流与 ZMQ 的区别**
-
-虽然 SGLang 的核心推理数据（Request, Token IDs, Decoded Text）通过 **ZMQ** 在进程间高效传输，但 **Metrics 数据** 并不占用 ZMQ 通道，而是通过上述的 **共享目录** 机制进行异步聚合。向该共享目录写入数据的组件如下：
-
-1.  **主进程 (TokenizerManager)**:
+*   **主进程 (TokenizerManager)**:
     *   **代码**: `sglang/srt/managers/tokenizer_manager.py`
-    *   **职责**: 记录 Request 级指标 (E2E Latency, TTFT, ITL)。
-    *   **触发**: 收到 Detokenizer 结果时 (`handle_loop`)。
-    *   **调用栈 (Call Stack)**:
-        1.  `handle_loop` (接收 `recv_obj` 数据)
-        2.  `collect_metrics` (计算指标逻辑)
-        3.  `metrics_collector.observe_...` (调用 `TokenizerMetricsCollector` 方法)
-        4.  `prometheus_client.Histogram.observe` (更新内存对象)
-        5.  **`prometheus_client.multiprocess`** (写入 `PROMETHEUS_MULTIPROC_DIR` 下的 `.db` 文件)
-    *   **核心写入逻辑**:
-        ```python
-        # sglang/srt/managers/tokenizer_manager.py
-        def collect_metrics(self, state, recv_obj, i):
-            # ...
-            # 1. 调用 Collector 方法
-            self.metrics_collector.observe_time_to_first_token(...)
+    *   **职责**: 处理 HTTP 请求、分词 (Tokenize)、接收 Detokenizer 结果并返回响应。
+    *   **Metrics**: 持有 `TokenizerMetricsCollector`，负责记录 **Request 级别** 的指标（如 `sglang:e2e_request_latency_seconds`, `sglang:ttft_seconds`）。
+*   **子进程 (Scheduler)**:
+    *   **代码**: `sglang/srt/managers/scheduler.py` (入口函数 `run_scheduler_process`)。
+    *   **职责**: 接收 Tokenized 请求，进行 Batch 调度，管理 KV Cache，驱动 Model Runner 执行推理，并将生成的 Token IDs 发送给 Detokenizer。
+    *   **Metrics**: 混入 `SchedulerMetricsMixin` (`sglang/srt/managers/scheduler_metrics_mixin.py`)，持有 `SchedulerMetricsCollector`，负责记录 **System 级别** 的指标（如 `sglang:token_usage`, `sglang:num_running_reqs`）。
+*   **子进程 (DetokenizerManager)**:
+    *   **代码**: `sglang/srt/managers/detokenizer_manager.py` (入口函数 `run_detokenizer_process`)。
+    *   **职责**: 接收 Scheduler 生成的 Token IDs，解码为文本 (Detokenize)，并将最终结果或流式增量发送回 TokenizerManager。
+    *   **Metrics**: 通常不直接负责核心指标采集，但其处理延迟会包含在 E2E Latency 中。
 
-        # sglang/srt/metrics/collector.py
-        class TokenizerMetricsCollector:
-            def observe_time_to_first_token(self, labels, value):
-                # 2. 调用 Prometheus Client
-                self.histogram_time_to_first_token.labels(**labels).observe(value)
-        ```
+**2. 进程间交互 (IPC)**
 
-2.  **子进程 (Scheduler)**:
-    *   **代码**: `sglang/srt/managers/scheduler.py` (逻辑位于 `scheduler_metrics_mixin.py`)
-    *   **职责**: 记录 System 级指标 (Token Usage, Throughput, Queue Length)。
-    *   **触发**: 周期性 (Per-Batch / Per-N-Steps)。
-    *   **调用栈 (Call Stack)**:
-        1.  `run_scheduler_process` (主循环)
-        2.  `log_decode_stats` / `log_prefill_stats` (构建 `SchedulerStats` 对象)
-        3.  `metrics_collector.log_stats` (调用 `SchedulerMetricsCollector` 方法)
-        4.  `prometheus_client.Gauge.set` (更新内存对象)
-        5.  **`prometheus_client.multiprocess`** (写入 `PROMETHEUS_MULTIPROC_DIR` 下的 `.db` 文件)
-    *   **核心写入逻辑**:
-        ```python
-        # sglang/srt/managers/scheduler_metrics_mixin.py
-        def log_decode_stats(self, ...):
-            self.stats.num_running_reqs = len(batch.reqs)
-            # 1. 调用 Collector 方法
-            self.metrics_collector.log_stats(self.stats)
+*   **控制流**: 形成闭环 `TokenizerManager` -> (ZMQ PUSH) -> `Scheduler` -> (ZMQ PUSH) -> `DetokenizerManager` -> (ZMQ PUSH) -> `TokenizerManager`。
+*   **数据流**: Metric 数据 **不通过** ZMQ 回传。主进程和子进程各自独立计算指标，并写入同一个共享存储后端。
 
-        # sglang/srt/metrics/collector.py
-        class SchedulerMetricsCollector:
-            def log_stats(self, stats: SchedulerStats):
-                # 2. 调用 Prometheus Client (Gauge.set)
-                self._log_gauge(self.num_running_reqs, stats.num_running_reqs)
-        ```
-    Python 生态中常用 gunicorn/uwsgi 等 多进程 模式，单纯把 metrics 放在每个进程内存会导致采集不到子进程的值。为此 prometheus_client 提供了 multiprocess 模式（prometheus_client.multiprocess）。这个模式会把每个进程的指标写成文件（在由环境变量 PROMETHEUS_MULTIPROC_DIR 指定的目录），然后当 /metrics 被请求时，主进程/collector 会读取这些文件并做聚合。
+**3. 共享目录 (PROMETHEUS_MULTIPROC_DIR) 技术细节**
 
-3.  **子进程 (DetokenizerManager)**:
-    *   **注意**: 不直接写入 Metrics。其解码耗时被包含在 TokenizerManager 记录的 E2E Latency 中。
+> [!TIP] 多进程 Metrics 聚合原理
+> Python 的 `prometheus_client` 库提供了 `multiprocess` 模式，利用共享文件系统来聚合不同进程的指标。
+>
+> 1.  **目录创建**: 系统使用 `tempfile.TemporaryDirectory` 创建一个临时目录。
+> 2.  **环境传递**: 路径写入环境变量 `PROMETHEUS_MULTIPROC_DIR`，Scheduler 子进程继承该变量。
+> 3.  **存储格式**: 每个进程在目录下创建内存映射文件 (`.db` files)，进行原子写操作。
+> 4.  **聚合逻辑**: 当访问 `/metrics` 时，主进程扫描并聚合所有 `.db` 文件的数据。
 
-##### 通信架构概览 (The Architecture)
+**4. Controller (/metrics 后端)**
+
+*   **路由注册**: 在 `launch_server.py` 启动时，调用 `add_prometheus_middleware`。
+*   **核心组件**: 创建 `prometheus_client.make_asgi_app`，并配置 `registry` 使用 `multiprocess.MultiProcessCollector`。
+
+```python
+# sglang/srt/metrics/collector.py
+
+# 示例：E2E Latency Histogram
+self.histogram_e2e_request_latency = Histogram(
+    "sglang:e2e_request_latency_seconds",
+    "End-to-end request latency in seconds.",
+    labelnames=labels,
+    buckets=[0.1, 0.5, 1.0, ..., 60.0], # Buckets 定义
+    registry=registry,
+)
+```
+
+### 多进程架构与 Metrics 数据流
+
+为了实现高吞吐和低延迟，SGLang 采用了多进程架构，进程间通过 **ZMQ (ZeroMQ)** 进行通信。
+
+> [!WARNING] Metrics 数据流 vs 核心数据流
+> 虽然 SGLang 的核心推理数据（Request, Token IDs, Decoded Text）通过 **ZMQ** 在进程间高效传输，但 **Metrics 数据** 并不占用 ZMQ 通道，而是通过 **共享目录 (PROMETHEUS_MULTIPROC_DIR)** 机制进行异步聚合。
+> *   **核心数据**: `Tokenizer` <-> `Scheduler` <-> `Detokenizer` (ZMQ)
+> *   **Metrics 数据**: 各进程 -> 写入 `.db` 文件 -> `Collector` 聚合 (File System)
+
+#### 1. 组件职责与写入逻辑
+
+**A. TokenizerManager (主进程)**
+
+*   **代码位置**: `sglang/srt/managers/tokenizer_manager.py`
+*   **职责**: 记录 **Request 级别** 的指标 (E2E Latency, TTFT, ITL)。
+*   **写入时机**: 收到 Detokenizer 结果时 (`handle_loop`)。
+*   **写入调用栈**:
+    1.  `handle_loop` (接收 `recv_obj`)
+    2.  `collect_metrics` (计算指标)
+    3.  `metrics_collector.observe_...` (更新内存对象)
+    4.  `prometheus_client.multiprocess` (写入共享目录文件)
+
+**B. Scheduler (子进程)**
+
+*   **代码位置**: `sglang/srt/managers/scheduler.py` (Mixin: `scheduler_metrics_mixin.py`)
+*   **职责**: 记录 **System 级别** 的指标 (Token Usage, Throughput, Queue)。
+*   **写入时机**: 周期性触发 (Per-Batch / Per-N-Steps)。
+*   **写入调用栈**:
+    1.  `run_scheduler_process` (主循环)
+    2.  `log_decode_stats` / `log_prefill_stats` (构建统计对象)
+    3.  `metrics_collector.log_stats` (调用 Collector)
+    4.  `prometheus_client.multiprocess` (写入共享目录文件)
+
+#### 2. 通信架构概览 (The Architecture)
 
 SGLang 的推理流程主要涉及三个核心进程，它们形成了一个闭环的数据流：
 
@@ -137,15 +125,11 @@ graph LR
     C -- "Output (Decoded Text)" --> A
 ```
 
-*   **TokenizerManager**: 系统入口，负责 HTTP 处理、分词、请求状态管理。
-*   **Scheduler**: 推理引擎，负责 Batch 调度、模型推理 (GPU)、KV Cache 管理。
-*   **DetokenizerManager**: 解码服务，负责将模型生成的 Token IDs 转回文本。
+#### 3. ZMQ 通信链路详解 (核心数据流)
 
-##### 代码实现与调用栈 (Code Implementation)
+为了更清晰地理解数据如何在进程间流转（这也是 Metrics 计算的基础），以下是各环节的关键代码位置：
 
-以下是各环节的关键代码位置和调用逻辑：
-
-##### A. Scheduler -> Detokenizer
+**A. Scheduler -> Detokenizer**
 *   **文件**: `sglang/srt/managers/scheduler.py`
 *   **Socket**: `self.send_to_detokenizer` (PUSH 模式)
 *   **关键方法**: `stream_output` (通常定义在 `SchedulerOutputProcessorMixin` 中)
@@ -164,7 +148,7 @@ graph LR
         )
     ```
 
-##### B. Detokenizer -> Tokenizer
+**B. Detokenizer -> Tokenizer**
 *   **文件**: `sglang/srt/managers/detokenizer_manager.py`
 *   **Socket**: `self.recv_from_scheduler` (PULL), `self.send_to_tokenizer` (PUSH)
 *   **关键方法**: `event_loop`
@@ -182,7 +166,7 @@ graph LR
                 self.send_to_tokenizer.send_pyobj(output)
     ```
 
-##### C. Tokenizer (接收端)
+**C. Tokenizer (接收端)**
 *   **文件**: `sglang/srt/managers/tokenizer_manager.py`
 *   **Socket**: `self.recv_from_detokenizer` (PULL)
 *   **关键方法**: `handle_loop`
@@ -198,29 +182,20 @@ graph LR
     ```
 
 
-#### 2. Time-Related Metrics 计算逻辑 (sglang/srt/managers/tokenizer_manager.py)
+#### 4. Time-Related Metrics 计算详解 (TokenizerManager)
 
-这些 Metrics 主要在 `TokenizerManager` 中计算，因为它持有请求的完整生命周期状态 (`ReqState`)。具体的 Metrics 记录由 `TokenizerMetricsCollector` (`sglang/srt/metrics/collector.py`) 完成。
+这些 Metrics 主要在 `TokenizerManager` 中计算，因为它持有请求的完整生命周期状态 (`ReqState`)。具体的 Metrics 记录由 `TokenizerMetricsCollector` (`sglang/srt/metrics/collector.py`)  完成。
 
-##### 核心机制：`recv_obj` 与数据流转
-
-在深入具体 Metrics 之前，必须理解 `TokenizerManager` 如何通过 `recv_obj` 接收推理结果。
-
-*   **定义与来源**: `recv_obj` 是 `TokenizerManager` 通过 ZMQ (`recv_from_detokenizer`) 从 **Detokenizer** 进程接收的 Python 对象（通常是 `BatchStrOutput` 或 `BatchTokenIDOutput`）。
-*   **粒度 (Granularity)**: **Batch-Step 级别**。它**不是**单个 Request 的完整结果，而是**当前 Batch 中所有活跃 Request 在最近一次（或几次）推理步产生的输出增量**。
-*   **数据流 (Data Flow)**:
-    1.  **Scheduler/Engine**: 完成一次推理步，生成 Token IDs。
-    2.  **Detokenizer**: 接收 Token IDs，解码为文本字符串。
-    3.  **TokenizerManager**: 接收包含解码结果的 `recv_obj`。
-*   **运行机制**:
-    *   `TokenizerManager.handle_loop` 处于无限循环中，不断 `await recv_pyobj()`。
-    *   每当收到 `recv_obj`，系统会遍历其中的 `rids` (Request IDs)。
-    *   对于每个 RID，更新其内部状态 `ReqState`（追加生成的文本/Token，更新 Token 计数）。
-*   **与 Metrics 的关系**:
-    *   **时间锚点**: `recv_obj` 到达的时间点被视为当前 Step 的“完成时间”。
-    *   **TTFT**: 如果某 Request 第一次出现在 `recv_obj` 中且有 Token 生成，计算 TTFT。
-    *   **ITL (TPOT)**: 通过比较同一 Request 在连续两个 `recv_obj` 中的到达时间差来计算。
-    *   **E2E**: 当 `recv_obj` 中某 Request 的 `finished_reasons` 不为空时，标记该 Request 结束并计算总延时。
+> [!TIP] 核心机制：recv_obj 与数据流转
+> 在深入具体 Metrics 之前，必须理解 `TokenizerManager` 如何通过 `recv_obj` 接收推理结果。
+>
+> *   **定义**: `recv_obj` 是主进程通过 ZMQ (`recv_from_detokenizer`) 从 Detokenizer 接收的 Python 对象（通常是 `BatchStrOutput`）。
+> *   **粒度**: **Batch-Step 级别**。它是当前 Batch 中所有活跃 Request 在最近一次推理步产生的输出增量（而非单个 Request 的完整结果）。
+> *   **数据流**: `Scheduler` (生成 Token IDs) -> `Detokenizer` (解码文本) -> `TokenizerManager` (接收 `recv_obj`)。
+> *   **Metrics 锚点**:
+>     *   **TTFT**: Request 首次出现在 `recv_obj` 中。
+>     *   **ITL**: 同一 Request 在连续两次 `recv_obj` 到达的时间差。
+>     *   **E2E**: `recv_obj` 标记 Request 结束 (Finished)。
 
 ##### sglang:e2e_request_latency_seconds
 *   **位置**: `TokenizerManager` 接收请求 -> 请求处理完成
@@ -348,27 +323,20 @@ def collect_metrics(self, state, recv_obj, i):
             state.last_time = new_time
 ```
 
-#### 3. Capacity & Other Metrics 计算逻辑 (sglang/srt/managers/scheduler_metrics_mixin.py)
+#### 5. Capacity Metrics 计算详解 (Scheduler)(sglang/srt/managers/scheduler_metrics_mixin.py)
 
-这些 Metrics 反映了系统的实时负载状态和吞吐能力，由 `Scheduler` 进程周期性统计。与 Request 级 Metrics 不同，这些指标是 **System 级别** 的采样快照。
+这些 Metrics 反映了系统的实时负载状态和吞吐能力，由 `Scheduler` 进程周期性统计。
 
-代码主要位于 `sglang/srt/managers/scheduler_metrics_mixin.py` 中的 `SchedulerMetricsMixin` 类。该 Mixin 被混入到 `Scheduler` 类中。
+> [!NOTE] System Metrics 触发机制
+> 代码主要位于 `sglang/srt/managers/scheduler_metrics_mixin.py` 中的 `SchedulerMetricsMixin` 类。该 Mixin 被混入到 `Scheduler` 类中。
+> 与 Request 级 Metrics 不同，这些指标是 **System 级别** 的采样快照，基于 **批处理事件 (Batch Events)** 触发：
+>
+> 1.  **Prefill 阶段**: **Per-Batch Trigger**
+>     *   每当调度器成功调度一个新的 Prefill Batch 时触发 (`log_prefill_stats`)。
+> 2.  **Decode 阶段**: **Per-N-Steps Trigger**
+>     *   每执行 N (默认 40) 个 Decode Steps 触发一次 (`log_decode_stats`)。
 
-**统计频率与触发机制 (Frequency & Trigger)**:
-
-SGLang 的 System Metrics 并非基于固定的时间间隔（Time Interval）触发，而是基于 **批处理事件 (Batch Events)** 触发。具体规律如下：
-
-1.  **Prefill 阶段**: **Per-Batch Trigger (每批次触发)**
-    *   **触发时机**: 每当调度器成功调度一个新的 Prefill Batch 时触发。
-    *   **频率**: 取决于新请求到达和被调度的速率。如果没有新请求进行 Prefill，则不会记录该阶段的 Metrics。
-    *   **代码位置**: `Scheduler.get_new_batch_prefill` -> `self.log_prefill_stats(...)`。
-
-2.  **Decode 阶段**: **Per-N-Steps Trigger (每 N 步触发)**
-    *   **触发时机**: 在 Decode 循环中，每执行一定数量的连续批处理步（Steps）后触发。
-    *   **频率**: 由 `forward_ct_decode % decode_log_interval == 0` 控制。默认间隔 (`decode_log_interval`) 为 **40 步**。这意味着每进行 40 次 Decode Forward 操作，才会记录一次 Decode 相关的 Metrics。
-    *   **代码位置**: `SchedulerOutputProcessorMixin.process_batch_result_decode` -> `self.log_decode_stats(...)`。
-
-**调用栈 (Call Stack)**:
+**关键调用栈**:
 
 *   **Prefill 阶段 (Cache Hit Rate 等)**:
     `Scheduler.run_scheduler_process` -> `Scheduler.event_loop_normal` (or `overlap`) -> `Scheduler.get_next_batch_to_run` -> `Scheduler.get_new_batch_prefill` -> `SchedulerMetricsMixin.log_prefill_stats`
@@ -492,11 +460,7 @@ def log_prefill_stats(self, adder, ...):
         self.metrics_collector.log_stats(self.stats)
 ```
 
-#### 4. 指标统计函数详解
-
-略
-
-#### 5. 指标梳理
+#### 6. 指标梳理
 
 基于调研目标，整理了 SGLang 的关键核心指标如下。
 
@@ -512,7 +476,7 @@ def log_prefill_stats(self, adder, ...):
 *   **Per-Batch / Per-N-Steps**: System Metrics (`num_running_reqs`, `num_queue_reqs`) 在 Prefill 阶段每调度一个 Batch 触发一次，在 Decode 阶段每隔一定步数 (默认 40 步) 触发一次。
 *   **Per-Token**: `inter_token_latency_seconds` 虽然是在 Tokenizer Manager 处理输出 Batch 时计算，但其 Histogram 记录的是每个 Token 的生成耗时分布。
 
-#### 6. SGLang 核心类详解
+#### 7. SGLang 核心类详解
 
 ##### TokenizerManager
 *   **文件位置**: `sglang/srt/managers/tokenizer_manager.py`
