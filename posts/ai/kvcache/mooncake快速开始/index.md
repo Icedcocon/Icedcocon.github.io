@@ -268,11 +268,12 @@ mooncake_master -port 50052 -max_threads 64 -metrics_port 9004 \
 
 **Decoder 配置 (`mooncake-decoder-config.yaml`)**:
 ```yaml
-chunk_size: 256
+chunk_size: 16 # 用于验证，生产环境建议 256 或以上
 remote_url: "mooncakestore://{IP_of_Machine_A}:50052/"
 remote_serde: "naive"
 local_cpu: False
-max_local_cpu_size: 100
+max_local_cpu_size: 2
+numa_mode: null 
 
 extra_config:
   local_hostname: "{IP_of_Machine_A}" # Decoder 所在节点 IP
@@ -289,11 +290,12 @@ extra_config:
 **Prefiller 配置 (`mooncake-prefiller-config.yaml`)**:
 ```yaml
 # 与 Decoder 配置类似，注意修改 local_hostname
-chunk_size: 256
+chunk_size: 16 # 用于验证，生产环境建议 256 或以上
 remote_url: "mooncakestore://{IP_of_Machine_A}:50052/"
 remote_serde: "naive"
 local_cpu: False
-max_local_cpu_size: 100
+max_local_cpu_size: 2
+numa_mode: null 
 
 extra_config:
   local_hostname: "{IP_of_Machine_B}" # Prefiller 所在节点 IP

@@ -224,6 +224,7 @@ remote_url: "lm://localhost:65432"
 remote_serde: "cachegen"
 ```
 
+
 **2. 启动 LMCache Server**
 
 ```bash
@@ -777,6 +778,20 @@ Mooncake 是专为 LLM 推理设计的开源分布式 KV 缓存存储系统。�
 *   **RDMA 优化**：基于 Transfer Engine 构建，支持 TCP 和 RDMA (InfiniBand/RoCEv2/eRDMA/NVIDIA GPUDirect)。
 *   **动态资源伸缩**：支持动态增减节点。
 
+> [!WARNING]
+> lmcache v0.13.1 及之前版本中存在 `CacheEngineKey.to_string()` 格式化类型错误的问题。
+>
+> **解决方案**：
+>    **手动修复**：如果无法升级，可以修改 `lmcache/utils.py` 文件中 `CacheEngineKey` 类的 `to_string` 方法。
+>    将：
+>    ```python
+>    f"@{self.worker_id}@{self.chunk_hash:x}@{self._dtype_str}"
+>    ```
+>    修改为：
+>    ```python
+>    f"@{self.worker_id}@{self.chunk_hash}@{self._dtype_str}"
+>    ```
+
 #### 4.3.1 安装与环境准备
 
 **前置条件**：
@@ -817,12 +832,13 @@ HTTP metrics server started on port 9003
 
 ```yaml
 # LMCache 基础配置
-chunk_size: 256
+chunk_size: 16 # 用于验证，生产环境建议 256 或以上
+save_unfull_chunk: true
 local_cpu: False
 # Mooncake 连接 URL (指向 Master RPC 端口)
 remote_url: "mooncakestore://localhost:50051/"
 max_local_cpu_size: 2  # 即使 local_cpu=False 也需配置缓冲大小
-numa_mode: "auto"      # 多 NUMA/多网卡系统建议设为 auto 以降低长尾延迟
+numa_mode: null      # 多 NUMA/多网卡系统建议设为 auto 以降低长尾延迟
 pre_caching_hash_algorithm: sha256_cbor_64bit
 
 # Mooncake 引擎高级配置
@@ -831,7 +847,7 @@ extra_config:
   save_chunk_meta: False  # 启用块元数据优化
   local_hostname: "localhost" # 当前节点标识
   metadata_server: "http://localhost:8080/metadata" # HTTP 元数据服务地址
-  protocol: "rdma"        # 传输协议: "rdma" 或 "tcp"
+  protocol: "tcp"        # 传输协议: "rdma" 或 "tcp"
   device_name: ""         # 留空以自动检测设备
   global_segment_size: 21474836480 # 每个 Worker 分配的内存段大小 (20 GiB)
   master_server_address: "localhost:50051" # Master RPC 地址
@@ -1036,7 +1052,7 @@ extra_config:
 *   [LMCache Quickstart Documentation](https://github.com/LMCache/LMCache/blob/dev/docs/source/getting_started/quickstart/index.rst)
 *   [LMCache vLLM Integration Guide](https://docs.lmcache.ai/getting_started/quickstart.rst)
 
-## 附录：Docker Compose 部署参考
+## 附录一：LMCache Server 部署参考 (Docker Compose)
 
 ### docker-compose.yaml
 
@@ -1163,4 +1179,168 @@ local_cpu: true
 remote_url: "lm://lmcache-server:65432"
 remote_serde: "cachegen"
 ```
+
+## 附录二：Mooncake + LMCache + vLLM P-D 分离部署 (Docker Compose)
+
+本附录提供基于 Mooncake 后端实现 Prefill-Decode 分离架构的 Docker Compose 部署方案。该方案包含 Mooncake Master、Prefiller、Decoder 和 Proxy Server 四个服务。
+
+### docker-compose.yaml
+
+```yaml
+version: '3.8'
+
+services:
+  # 1. Mooncake Master
+  # 负责管理集群元数据
+  mooncake-master:
+    image: vllm/vllm-openai:latest
+    container_name: mooncake-master
+    entrypoint: ["/bin/bash"]
+    command: >
+      pip install mooncake-transfer-engine &&
+      mooncake_master -port 50052 -max_threads 64 -metrics_port 9004
+      --enable_http_metadata_server=true
+      --http_metadata_server_host=0.0.0.0
+      --http_metadata_server_port=8080
+    ports:
+      - "8080:8080"   # Metadata Server
+      - "50052:50052" # RPC Port
+      - "9004:9004"   # Metrics Port
+    networks:
+      - lmcache-net
+
+  # 2. Prefiller (KV Producer)
+  # 负责处理 Prompt 阶段，生成 KV Cache
+  prefiller:
+    image: vllm/vllm-openai:latest
+    container_name: prefiller
+    depends_on:
+      - mooncake-master
+    volumes:
+      - ./mooncake-prefiller-config.yaml:/app/mooncake-prefiller-config.yaml
+    environment:
+      - LMCACHE_CONFIG_FILE=/app/mooncake-prefiller-config.yaml
+      - LMCACHE_USE_EXPERIMENTAL=True
+      - VLLM_ENABLE_V1_MULTIPROCESSING=1
+      - PYTHONHASHSEED=0
+    entrypoint: ["/bin/bash"]
+    command: >
+      pip install lmcache mooncake-transfer-engine &&
+      vllm serve /models/qwen
+      --port 8100
+      --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1", "kv_role":"kv_producer"}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - lmcache-net
+
+  # 3. Decoder (KV Consumer)
+  # 负责处理 Decoding 阶段，消费 KV Cache
+  decoder:
+    image: vllm/vllm-openai:latest
+    container_name: decoder
+    depends_on:
+      - mooncake-master
+    volumes:
+      - ./mooncake-decoder-config.yaml:/app/mooncake-decoder-config.yaml
+    environment:
+      - LMCACHE_CONFIG_FILE=/app/mooncake-decoder-config.yaml
+      - LMCACHE_USE_EXPERIMENTAL=True
+      - VLLM_ENABLE_V1_MULTIPROCESSING=1
+      - PYTHONHASHSEED=0
+    entrypoint: ["/bin/bash"]
+    command: >
+      pip install lmcache mooncake-transfer-engine &&
+      vllm serve /models/qwen
+      --port 8200
+      --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1", "kv_role":"kv_consumer"}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - lmcache-net
+
+  # 4. Proxy Server
+  # 负责请求路由
+  proxy:
+    image: python:3.10-slim
+    container_name: proxy
+    depends_on:
+      - prefiller
+      - decoder
+    # 假设 disagg_proxy_server.py 已存在于当前目录
+    volumes:
+      - ./disagg_proxy_server.py:/app/disagg_proxy_server.py
+    working_dir: /app
+    command: >
+      python3 disagg_proxy_server.py
+      --host 0.0.0.0 --port 9000
+      --prefiller-host prefiller --prefiller-port 8100
+      --decoder-host decoder --decoder-port 8200
+    ports:
+      - "9000:9000"
+    networks:
+      - lmcache-net
+
+networks:
+  lmcache-net:
+    driver: bridge
+```
+
+### 配置文件
+
+**1. Decoder 配置 (`mooncake-decoder-config.yaml`)**
+
+```yaml
+chunk_size: 16
+remote_url: "mooncakestore://mooncake-master:50052/"
+remote_serde: "naive"
+local_cpu: False
+max_local_cpu_size: 2
+numa_mode: null 
+
+extra_config:
+  local_hostname: "decoder"
+  metadata_server: "http://mooncake-master:8080/metadata"
+  protocol: "tcp" # 容器环境默认使用 TCP，如需 RDMA 请改为 "rdma" 并挂载设备
+  device_name: ""
+  master_server_address: "mooncake-master:50052"
+  global_segment_size: 32212254720
+  local_buffer_size: 1073741824
+  transfer_timeout: 1
+  save_chunk_meta: False
+```
+
+**2. Prefiller 配置 (`mooncake-prefiller-config.yaml`)**
+
+```yaml
+chunk_size: 16
+remote_url: "mooncakestore://mooncake-master:50052/"
+remote_serde: "naive"
+local_cpu: False
+max_local_cpu_size: 2
+numa_mode: null 
+
+extra_config:
+  local_hostname: "prefiller"
+  metadata_server: "http://mooncake-master:8080/metadata"
+  protocol: "tcp"
+  device_name: ""
+  master_server_address: "mooncake-master:50052"
+  global_segment_size: 32212254720
+  local_buffer_size: 1073741824
+  transfer_timeout: 1
+  save_chunk_meta: False
+```
+
+> **注意**：运行此配置需要确保 `disagg_proxy_server.py` 文件存在于当前目录中。该脚本可从 vLLM 或 LMCache 仓库获取。
 
