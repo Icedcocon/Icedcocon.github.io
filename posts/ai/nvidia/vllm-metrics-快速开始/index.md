@@ -591,21 +591,21 @@ def make_stats(self) -> SchedulerStats:
 
 反映单个请求的延迟表现和属性分布，通常用于计算 P50/P90/P99 指标。
 
-| 指标名称 (Metric Name)                           | 类型 (Type) | 统计频率 (Frequency) | 描述 (Description)                                                        |
-| :------------------------------------------- | :-------- | :--- | :---------------------------------------------------------------------- |
-| `vllm:e2e_request_latency_seconds`           | Histogram | Per-Request | **端到端延迟 (E2E Latency)**。<br>请求从到达 API Server 到结束的总耗时。                   |
+| 指标名称 (Metric Name)                           | 类型 (Type) | 统计频率 (Frequency)     | 描述 (Description)                                                        |
+| :------------------------------------------- | :-------- | :------------------- | :---------------------------------------------------------------------- |
+| `vllm:e2e_request_latency_seconds`           | Histogram | Per-Request          | **端到端延迟 (E2E Latency)**。<br>请求从到达 API Server 到结束的总耗时。                   |
 | `vllm:time_to_first_token_seconds`           | Histogram | Per-Request-Per-Step | **首字延迟 (TTFT)**。<br>从请求到达系统到生成第一个 Token 的时间分布。                          |
-| `vllm:request_queue_time_seconds`            | Histogram | Per-Request | **排队时间 (Queue Time)**。<br>请求在 Waiting 队列中等待调度的时间。                       |
-| `vllm:request_inference_time_seconds`        | Histogram | Per-Request | **推理时间 (Inference Time)**。<br>请求实际在 GPU 上运行的时间 (Running phase)。         |
-| `vllm:request_prefill_time_seconds`          | Histogram | Per-Request | **Prefill 阶段耗时**。<br>处理 Prompt 输入阶段的耗时。                                 |
-| `vllm:request_decode_time_seconds`           | Histogram | Per-Request | **Decode 阶段耗时**。<br>生成 Output Token 阶段的耗时。                              |
+| `vllm:request_queue_time_seconds`            | Histogram | Per-Request          | **排队时间 (Queue Time)**。<br>请求在 Waiting 队列中等待调度的时间。                       |
+| `vllm:request_inference_time_seconds`        | Histogram | Per-Request          | **推理时间 (Inference Time)**。<br>请求实际在 GPU 上运行的时间 (Running phase)。         |
+| `vllm:request_prefill_time_seconds`          | Histogram | Per-Request          | **Prefill 阶段耗时**。<br>处理 Prompt 输入阶段的耗时。                                 |
+| `vllm:request_decode_time_seconds`           | Histogram | Per-Request          | **Decode 阶段耗时**。<br>生成 Output Token 阶段的耗时。                              |
 | `vllm:inter_token_latency_seconds`           | Histogram | Per-Request-Per-Step | **Token 间延迟 (ITL)**。<br>Decode 阶段生成相邻两个 Token 之间的时间间隔。                  |
-| `vllm:request_time_per_output_token_seconds` | Histogram | Per-Request | **平均 TPOT**。<br>请求维度的平均每个 Output Token 生成时间 (Decode Time / Gen Tokens)。 |
-| `vllm:request_prompt_tokens`                 | Histogram | Per-Request | **Prompt 长度分布**。<br>请求输入的 Token 数量分布。                                   |
-| `vllm:request_generation_tokens`             | Histogram | Per-Request | **生成长度分布**。<br>请求实际生成的 Token 数量分布。                                      |
-| `vllm:request_params_max_tokens`             | Histogram | Per-Request | **Max Tokens 参数分布**。<br>用户请求中设置的 `max_tokens` 参数分布。                     |
-| `vllm:request_max_num_generation_tokens`     | Histogram | Per-Request | **最大生成 Token 数分布**。<br>请求实际允许生成的最大 Token 数。                             |
-| `vllm:request_params_n`                      | Histogram | Per-Request | **N 参数分布**。<br>用户请求中设置的 `n` (返回序列个数) 参数分布。                              |
+| `vllm:request_time_per_output_token_seconds` | Histogram | Per-Request          | **平均 TPOT**。<br>请求维度的平均每个 Output Token 生成时间 (Decode Time / Gen Tokens)。 |
+| `vllm:request_prompt_tokens`                 | Histogram | Per-Request          | **Prompt 长度分布**。<br>请求输入的 Token 数量分布。                                   |
+| `vllm:request_generation_tokens`             | Histogram | Per-Request          | **生成长度分布**。<br>请求实际生成的 Token 数量分布。                                      |
+| `vllm:request_params_max_tokens`             | Histogram | Per-Request          | **Max Tokens 参数分布**。<br>用户请求中设置的 `max_tokens` 参数分布。                     |
+| `vllm:request_max_num_generation_tokens`     | Histogram | Per-Request          | **最大生成 Token 数分布**。<br>请求实际允许生成的最大 Token 数。                             |
+| `vllm:request_params_n`                      | Histogram | Per-Request          | **N 参数分布**。<br>用户请求中设置的 `n` (返回序列个数) 参数分布。                              |
 
 ##### 3. Cache & Resources (缓存与资源)
 
