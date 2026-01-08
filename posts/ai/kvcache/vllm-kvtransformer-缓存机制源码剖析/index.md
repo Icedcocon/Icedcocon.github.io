@@ -150,6 +150,33 @@ def save_kv_layer(self, layer_id: int, layer_name: str, kv_cache: torch.Tensor, 
     self._lmcache_engine.save_kv_layer(layer_id, layer_name, kv_cache, **kwargs)
 ```
 
+### 3.3 关键机制：一致性哈希与 PYTHONHASHSEED
+
+在 KV Cache 分离（Disaggregation）场景下，Prefill 实例和 Decode 实例必须对相同的 Token 序列生成完全一致的 Block Hash，才能在共享存储中正确匹配数据。vLLM 使用 `PYTHONHASHSEED` 环境变量来控制这一行为。
+
+**原理与实现：**
+
+vLLM 的 Block Hash 计算依赖于一个初始种子 `NONE_HASH`。
+*   如果未设置 `PYTHONHASHSEED`，`NONE_HASH` 将由 `os.urandom(32)` 随机生成，导致不同进程间的 Hash 不一致。
+*   如果设置了 `PYTHONHASHSEED`，则使用该值生成固定的 `NONE_HASH`，确保跨进程的一致性。
+
+```python
+# [vllm/v1/core/kv_cache_utils.py:L89-L105](file:///Users/admin/Documents/Docs/HugoBlogs/external/vllm/vllm/v1/core/kv_cache_utils.py#L89-L105)
+def init_none_hash(hash_fn: Callable[[Any], bytes]):
+    global NONE_HASH
+    hash_seed = os.getenv("PYTHONHASHSEED")
+    # ...
+    if hash_seed is None:
+        # 随机种子，导致跨进程 Hash 不一致
+        NONE_HASH = BlockHash(os.urandom(32))
+    else:
+        # 固定种子，保证一致性
+        NONE_HASH = BlockHash(hash_fn(hash_seed))
+```
+
+> [!WARNING]
+> 在部署分离式架构时，必须显式设置所有实例（Prefiller 和 Decoder）的 `PYTHONHASHSEED` 为相同的值，否则 Decode 实例将无法命中 Prefill 实例生成的缓存。
+
 ## 4. Mooncake：双重角色的高性能引擎
 
 **Mooncake** 在 vLLM 生态中扮演着独特且重要的角色。它既是一个高性能的 **KV 传输引擎 (Transfer Engine)**，也是一个分布式的 **KV 存储系统 (Mooncake Store)**。这使得它既可以独立作为 P2P Connector 使用，也可以作为 LMCache 的高性能后端。
@@ -245,6 +272,113 @@ LMCache 的后端（Backends）根据其在 vLLM 中的应用模式，主要分�
 
 ### 6.3 总结：二者兼顾的 Mooncake
 Mooncake 是一个特例，它既包含底层的 **Transfer Engine** (用于 P2P 加速)，也构建了上层的 **Mooncake Store** (作为 LMCache 后端)。在 vLLM 中，你可以单独使用 `MooncakeConnector` 进行 P2P 传输，也可以通过 `LMCacheConnector` 配置 Mooncake 后端来实现持久化存储。
+
+### 6.4 LMCache 模块加载策略 (Native vs External)
+
+vLLM 在集成 LMCache 时采用了一种灵活的“双源”加载策略，允许用户在 **vLLM 内置适配器** 和 **LMCache 独立包** 之间进行选择。
+
+**加载流程：**
+
+```mermaid
+flowchart TD
+    Start[Init LMCacheConnectorV1] --> CheckConfig{Check use_native}
+    CheckConfig -- "True (config)" --> ImportNative[Import vllm...lmcache_integration]
+    CheckConfig -- "False (Default)" --> ImportExternal[Import lmcache.integration.vllm]
+    ImportNative --> Instantiate[Instantiate LMCacheConnectorV1Impl]
+    ImportExternal --> Instantiate
+    Instantiate --> Done[Connector Ready]
+```
+
+**设计意图：**
+1.  **解耦迭代 (Decoupling)**: 默认使用 `external/lmcache` (即 `pip install lmcache`) 中的代码。这允许 LMCache 团队独立于 vLLM 的发版周期进行快速迭代和 Bug 修复。
+2.  **兜底兼容 (Fallback)**: vLLM 源码树中保留了一份 `lmcache_integration` (`use_native=True`)，确保在未安装外部包或需要特定版本绑定时仍可工作。
+
+**代码实现：**
+
+```python
+# [vllm/distributed/kv_transfer/kv_connector/v1/lmcache_connector.py:L83-L101](file:///Users/admin/Documents/Docs/HugoBlogs/external/vllm/vllm/distributed/kv_transfer/kv_connector/v1/lmcache_connector.py#L83-L101)
+use_native = vllm_config.kv_transfer_config.get_from_extra_config("use_native", False)
+if use_native:
+    # 使用 vLLM 源码树中的适配器
+    from vllm.distributed.kv_transfer.kv_connector.v1 import lmcache_integration
+    cls = lmcache_integration.vllm_v1_adapter.LMCacheConnectorV1Impl
+else:
+    # 使用安装在环境中的 lmcache 包（默认）
+    from lmcache.integration.vllm.vllm_v1_adapter import (
+        LMCacheConnectorV1Impl as LMCacheConnectorLatestImpl,
+    )
+    cls = LMCacheConnectorLatestImpl
+```
+
+## 6.5 LMCache 配置详解 (`LMCACHE_CONFIG_FILE`)
+
+在 vLLM 中启用 LMCache 后，可以通过环境变量 `LMCACHE_CONFIG_FILE` 指定一个 YAML 配置文件来精细控制 LMCache 的行为。
+
+### 6.5.1 配置加载机制与结构体代码
+
+LMCache 的配置系统采用了一种**动态生成 Dataclass** 的设计模式。配置项并非硬编码在类属性中，而是定义在一个名为 `_CONFIG_DEFINITIONS` 的字典中，最后通过 `dataclasses.make_dataclass` 动态构建 `LMCacheEngineConfig` 类。
+
+**代码实现：**
+
+```python
+# [external/lmcache/v1/config.py](file:///Users/admin/Documents/Docs/HugoBlogs/external/lmcache/v1/config.py)
+
+# 1. 配置定义字典
+_CONFIG_DEFINITIONS = {
+    "chunk_size": {"type": int, "default": 256, "env_converter": int},
+    "local_cpu": {"type": bool, "default": True, "env_converter": _to_bool},
+    # ...
+    # 2. Extra Config：用于扩展配置（如 NIXL 后端参数）
+    "extra_config": {
+        "type": Optional[dict],
+        "default": None,
+        "env_converter": lambda x: x if isinstance(x, dict) else json.loads(x) if x else None,
+    },
+    # ...
+    "enable_pd": {"type": bool, "default": False, "env_converter": _to_bool}, # PD: Prefill-Decode Disaggregation
+}
+
+# 3. 动态创建配置类
+def _create_config_class():
+    # ...
+    cls = make_dataclass(
+        "LMCacheEngineConfig",
+        [(name, type_, default) for name, (type_, default) in fields_dict.items()],
+        # ...
+    )
+    return cls
+
+LMCacheEngineConfig = _create_config_class()
+```
+
+### 6.5.2 配置结构：Base vs Extra
+
+LMCache 的配置结构分为两部分：
+1.  **基础配置 (Base Config)**: 直接定义在 `_CONFIG_DEFINITIONS` 中的常用选项，如 `chunk_size`, `remote_url` 等。
+2.  **扩展配置 (Extra Config)**: 通过 `extra_config` 字段传入的字典，通常用于存储后端特定的高级参数（如 NIXL 或 Mooncake 的特定参数）。
+
+**YAML 配置文件示例：**
+
+```yaml
+chunk_size: 256
+remote_url: "mooncakestore://mooncake-master:50053/"
+enable_pd: true  # 开启 Prefill-Decode 分离模式
+
+# 扩展配置
+extra_config:
+  local_hostname: "prefiller-node-1"
+  metadata_server: "http://mooncake-master:8080/metadata"
+  transfer_timeout: 1
+```
+
+### 6.5.3 常用关键配置
+
+以下是 vLLM 用户最常需要关注的配置项：
+
+*   **`chunk_size`**: KV Cache 切分的粒度，默认 256。需要根据网络带宽和延迟进行调优。
+*   **`local_cpu` / `max_local_cpu_size`**: 控制是否使用本地内存作为缓存及其大小。
+*   **`remote_url`**: 指定远程存储后端。例如使用 Redis 作为共享存储：`redis://localhost:6379`。
+*   **`enable_p2p`**: 是否开启 Worker 间的 P2P 直连。
 
 ## 7. 总结
 

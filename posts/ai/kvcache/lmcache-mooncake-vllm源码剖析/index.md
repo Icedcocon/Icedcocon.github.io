@@ -713,6 +713,14 @@ class AsyncGPUModelRunnerOutput(AsyncModelRunnerOutput):
 
 *(待补充: MoonCake 集成细节)*
 
+根据日志可以看出，mooncake 在客户端断开连接后，会清理缓存
+```text
+I0107 01:41:42.813243    24 rpc_service.cpp:39] Master Metrics: Mem Storage: 1008.00 KB / 30.00 GB (0.0%) | SSD Storage: 0 B / 0 B | Keys: 1 (soft-pinned: 0) | Clients: 1 | Requests (Success/Total): PutStart=5/5, PutEnd=5/5, PutRevoke=0/0, Get=0/0, Exist=6/6, Del=0/0, DelAll=0/0, Ping=608/608,  | Batch Requests (Req=Success/PartialSuccess/Total, Item=Success/Total): PutStart:(Req=0/0/0, Item=0/0), PutEnd:(Req=0/0/0, Item=0/0), PutRevoke:(Req=0/0/0, Item=0/0), Get:(Req=1/0/1, Item=1/1), ExistKey:(Req=0/0/0, Item=0/0), QueryIp:(Req=0/0/0, Item=0/0), Clear:(Req=0/0/0, Item=0/0),  | Eviction: Success/Attempts=0/0, keys=0, size=0 B | Discard: Released/Total=0/0, StagingSize=0 B
+I0107 01:41:52.260730    21 master_service.cpp:1453] client_id=10253985089986823087-7215197135771319975, action=client_expired
+I0107 01:41:52.342777    21 master_service.cpp:1515] client_id=10253985089986823087-7215197135771319975, segment_name=vllm-server:14130, action=unmount_expired_segment
+I0107 01:41:52.813350    24 rpc_service.cpp:39] Master Metrics: Mem Storage: 0 B / 0 B | SSD Storage: 0 B / 0 B | Keys: 0 (soft-pinned: 0) | Clients: 0 | Requests (Success/Total): PutStart=5/5, PutEnd=5/5, PutRevoke=0/0, Get=0/0, Exist=6/6, Del=0/0, DelAll=0/0, Ping=608/608,  | Batch Requests (Req=Success/PartialSuccess/Total, Item=Success/Total): PutStart:(Req=0/0/0, Item=0/0), PutEnd:(Req=0/0/0, Item=0/0), PutRevoke:(Req=0/0/0, Item=0/0), Get:(Req=1/0/1, Item=1/1), ExistKey:(Req=0/0/0, Item=0/0), QueryIp:(Req=0/0/0, Item=0/0), Clear:(Req=0/0/0, Item=0/0),  | Eviction: Success/Attempts=0/0, keys=0, size=0 B | Discard: Released/Total=0/0, StagingSize=0 B
+```
+
 ### 6.1 潜在集成点 (Hypothesis)
 
 MoonCake 作为分布式 KV Cache 存储，预计会涉及跨节点的通信：

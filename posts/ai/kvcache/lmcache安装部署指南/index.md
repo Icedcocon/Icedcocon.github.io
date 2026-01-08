@@ -1,4 +1,4 @@
-# LMCache快速开始
+# LMCache安装部署指南
 
 
 ## 1. 项目简介
@@ -792,6 +792,25 @@ Mooncake 是专为 LLM 推理设计的开源分布式 KV 缓存存储系统。�
 >    f"@{self.worker_id}@{self.chunk_hash}@{self._dtype_str}"
 >    ```
 
+> [!WARNING]
+> 在使用基于存储的 KV 共享（如 Mooncake）时，若未配置 `disagg_spec`，`kv_producer` 可能会因缺少空值检查而触发 `AttributeError`。
+>
+> **解决方案**：
+>    **手动修复**：修改 `vllm` 中的 `vllm/distributed/kv_transfer/kv_connector/v1/lmcache_integration/vllm_v1_adapter.py` 文件。
+>    在访问 `request.disagg_spec` 属性前增加非空检查。
+>    将：
+>    ```python
+>    if self.kv_role == "kv_producer":
+>         assert request.disagg_spec is not None
+>         skip_leading_tokens = min(
+>           skip_leading_tokens, request.disagg_spec.num_transferred_tokens
+>         )
+>    ```
+>    修改为：
+>    ```python
+>    if self.kv_role == "kv_producer" and request.disagg_spec:
+>    ```
+
 #### 4.3.1 安装与环境准备
 
 **前置条件**：
@@ -871,7 +890,10 @@ vllm serve \
     --kv-transfer-config \
     '{"kv_connector":"LMCacheConnectorV1", "kv_role":"kv_both"}'
 ```
-
+实际执行代码
+```bash
+LMCACHE_CONFIG_FILE=mooncake-config.yaml vllm serve --model /mnt/inaisfs/loki/bussiness/LLMs/Qwen3-1.7B --served-model-name qwen --port 8000 --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1", "kv_role":"kv_both"}' --max-model-len 4090
+```
 **验证部署**：
 
 发送推理请求以测试集成：
