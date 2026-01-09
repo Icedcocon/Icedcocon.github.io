@@ -52,16 +52,130 @@ graph TD
     style Worker fill:#fbb,stroke:#333
 ```
 
-## 2. P2P 机制 (P2P Related)
+## 2. LMCache Worker 与 Controller 交互
 
-如果启用了 `enable_p2p`，则必须启动 LMCache Controller。此时，Controller 扮演“中心节点”的角色，存储所有 Chunk 的位置信息。
+在深入 Controller 原理之前，必须先引入 **LMCache Worker** 的概念。它是运行在每个 vLLM 实例（通常是 Rank 0 进程）中的代理组件，负责与 Controller 进行通信。
 
-*   **工作流程**：`P2PBackend` 首先从 LMCache Controller 查询所需的 Chunk 信息，然后通过 NIXL (或其他传输层) 进行点对点的数据传输。
+### 2.1 Worker 的核心职责
 
-> [!NOTE]
-> 在 P2P 场景下，Controller 仅负责元数据（Metadata）的交换，实际的 KV Cache 数据流直接在 Worker 节点之间传输，从而避免单点瓶颈。
+LMCache Worker (`lmcache.v1.cache_controller.worker.LMCacheWorker`) 并不是数据的存储者，而是 **控制平面的执行者**。它的主要职责包括：
 
-## 3. 核心功能与 API 详解 (Key Features)
+1.  **注册 (Register)**: 启动时向 Controller 报到，告知自己的 IP、端口和 ID。
+2.  **心跳 (Heartbeat)**: 周期性发送心跳包，保活并接收 Controller 下发的指令。
+3.  **元数据上报 (Reporting)**: 协助存储后端将 `Admit` (KV 生成) 和 `Evict` (KV 释放) 消息推送给 Controller。
+4.  **指令执行 (Execution)**: 响应 Controller 的控制指令（如 Move, Clear 等）。
+
+### 2.2 交互生命周期
+
+```mermaid
+sequenceDiagram
+    participant vLLM as vLLM Engine
+    participant Worker as LMCache Worker
+    participant Controller as LMCache Controller
+
+    Note over vLLM, Worker: 初始化阶段
+    vLLM->>Worker: Initialize
+    Worker->>Controller: Register(IP, Port, ID)
+    Controller-->>Worker: Ack (Heartbeat Config)
+    
+    par Heartbeat Loop
+        loop Every N seconds
+            Worker->>Controller: Heartbeat
+            opt Has Commands
+                Controller-->>Worker: Execute Command (e.g. Move)
+            end
+        end
+    and Reporting Loop
+        loop On Cache Change
+            vLLM->>Worker: Put/Evict KV
+            Worker->>Controller: Push Metadata (Admit/Evict)
+        end
+    end
+    
+    Note over vLLM, Worker: 关闭阶段
+    vLLM->>Worker: Shutdown
+    Worker->>Controller: Deregister
+```
+
+## 3. P2P 机制与后端可见性 (P2P & Visibility)
+
+LMCache 的 P2P 机制目前主要服务于 **分离式推理 (Disaggregated Prefill / XpYd)** 场景。
+
+### 3.1 分离式推理 (Disaggregated Prefill)
+
+在分离式推理架构中，Prefill 实例（生成 KV Cache）和 Decode 实例（复用 KV Cache）通常是分离的。LMCache 利用 P2P 技术（通过 `PDBackend`）实现两者之间的高效数据传输。
+
+*   **依赖 Controller**: ❌ 否（主要依赖静态配置或 Proxy 调度）。
+*   **流程**: Prefiller 产生数据 -> 根据静态配置 (`pd_peer_host`) 或 Proxy 指令 -> 直接 Push 给 Decoder。
+*   **组件**: 使用 `PDBackend`，绕过标准 Metadata 上报。
+
+### 3.2 后端可见性矩阵
+
+并非所有后端的数据都能被 Controller 感知。
+
+| 存储后端 (Backend) | Controller 可见性 | 备注 |
+| :--- | :---: | :--- |
+| **LocalCPUBackend** | ✅ 可见 | 核心热数据，通过 Worker 实时上报 |
+| **LocalDiskBackend** | ✅ 可见 | 冷数据，写入/驱逐时通过 Worker 上报 |
+| **RemoteBackend** | ❌ 不可见 | 视为外部存储，Controller 不维护其元数据 |
+| **PDBackend** | ❌ 不可见 | 专用于分离式推理，采用 Push 模式，不上报 |
+
+## 4. LMCache Worker 启动流程
+
+了解 LMCache Worker 是如何随 vLLM 启动的，有助于排查连接问题。
+
+### 4.1 启动时序图
+
+LMCache Worker 并非由 vLLM 直接调用，而是嵌套在 LMCache Engine 的初始化过程中。
+
+```mermaid
+sequenceDiagram
+    participant vLLM as vLLM Main Process
+    participant Connector as LMCacheConnector
+    participant Adapter as LMCacheConnectorImpl
+    participant Engine as LMCacheEngine
+    participant Worker as LMCacheWorker
+    participant Controller as LMCache Controller (Remote)
+
+    Note over vLLM: vLLM 启动，加载 KVTransferConfig
+    vLLM->>Connector: Initialize LMCacheConnectorV1
+    
+    alt use_native=False (Default)
+        Connector->>Adapter: Import & Init LMCacheConnectorLatestImpl
+        Note right of Adapter: 来自 lmcache.integration.vllm
+    else use_native=True
+        Connector->>Adapter: Import & Init LMCacheConnectorV1Impl
+        Note right of Adapter: 来自 vllm.distributed...
+    end
+
+    Adapter->>Engine: LMCacheEngineBuilder.build(config)
+    
+    rect rgb(240, 248, 255)
+        Note over Engine, Worker: LMCache 内部初始化
+        Engine->>Engine: __init__
+        
+        opt enable_controller=True
+            Engine->>Worker: Instantiate LMCacheWorker(config)
+            
+            par Async Registration
+                Worker->>Worker: Start Event Loop
+                Worker->>Controller: Register (IP, Port, ID)
+                Controller-->>Worker: Ack
+            end
+        end
+    end
+```
+
+### 4.2 代码检索指南
+
+为什么在 vLLM 代码库中搜不到 `LMCacheWorker`？
+
+1.  **vLLM 侧**: `vllm/distributed/kv_transfer/kv_connector/v1/lmcache_connector.py` 仅负责加载 `lmcache` 库的 Adapter。
+2.  **LMCache 侧**: `LMCacheWorker` 定义在 `lmcache/v1/cache_controller/worker.py` 中，并在 `lmcache/v1/cache_engine.py` 的 `LMCacheEngine.__init__` 方法中被实例化。
+
+因此，调试 Worker 启动问题时，应关注 `lmcache` 库的 `cache_engine.py` 文件。
+
+## 5. 核心功能与 API 详解 (Key Features)
 
 Controller 为用户和编排系统（Orchestrator）提供了一组 RESTful API 来管理 KV Cache。同时，它也与 LMCache Worker 保持实时交互。
 
@@ -439,35 +553,86 @@ Controller 为用户和编排系统（Orchestrator）提供了一组 RESTful API
     响应中包含了 Worker 的 IP、端口、P2P 地址以及心跳时间戳，表明 Worker 已成功注册并在线。
 
 
-## 4. 快速开始 (Quick Start)
+## 4. 安装与部署 (Installation & Deployment)
 
-本节介绍如何启动和配置 LMCache Controller。
+本节介绍 LMCache Controller 的安装、部署方式以及启动配置。
 
-### 4.1 启动 Controller
+### 4.1 安装 (Installation)
 
-可以通过 Python 模块直接启动 Controller 服务：
+LMCache 深度集成于 vLLM，可以通过 PyPI 直接安装：
+
+```bash
+# 安装 LMCache 和 vLLM
+pip install lmcache vllm
+```
+
+或者从源码安装（推荐用于开发或最新功能）：
+
+```bash
+git clone https://github.com/LMCache/LMCache.git
+cd LMCache
+pip install -e .
+```
+
+### 4.2 启动 Controller (Start Controller)
+
+可以通过 Python 模块直接启动 Controller 服务。启动后，**WebUI 仪表盘**也会默认在 9000 端口开启，提供可视化的集群监控。
 
 ```bash
 python3 -m lmcache.v1.api_server
 ```
 
-启动成功后，控制台将输出类似如下日志，表明 Controller 已在 9000 端口监听：
+启动成功后：
+*   **API 服务**: `http://localhost:9000` (用于 Lookup, Move 等接口调用)
+*   **WebUI 仪表盘**: `http://localhost:9000/` (浏览器访问，查看集群状态)
 
+控制台输出示例：
 ```text
 INFO:     Started server process [50664]
 INFO:     Uvicorn running on http://0.0.0.0:9000 (Press CTRL+C to quit)
 ```
 
-### 4.2 启动参数详解
+### 4.3 Docker 部署
+
+官方提供了集成 vLLM 的 Docker 镜像，可以直接拉取使用：
+
+```bash
+docker pull lmcache/vllm-openai
+```
+
+运行示例（集成 LMCache 的 vLLM）：
+
+```bash
+docker run --runtime nvidia --gpus all \
+    --network host \
+    lmcache/vllm-openai \
+    meta-llama/Llama-3.1-8B-Instruct --kv-transfer-config \
+    '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}'
+```
+
+### 4.4 Kubernetes 部署
+
+对于 Kubernetes 环境，推荐使用 **vLLM Production Stack** 进行部署。它是生产就绪的 K8s 部署方案。
+需在 Helm Values 中启用 LMCache 配置：
+
+```yaml
+lmcacheConfig:
+  enabled: true
+  cpuOffloadingBufferSize: "20"
+```
+
+详细指南请参考 [vLLM Production Stack](https://github.com/vllm-project/production-stack)。
+
+### 4.5 启动参数详解
 
 Controller 支持以下命令行参数配置：
 
 *   `--host`: 绑定 IP 地址，默认为 `0.0.0.0`。
-*   `--port`: 监听端口，默认为 `9000`。这是对外暴露 API（如 `lookup`）的端口。
+*   `--port`: 监听端口，默认为 `9000`。
 *   `--monitor-ports`: 监控端口配置，默认为 `None`。用于 LMCache Worker 与 Controller Manager 通信。需传入 JSON 格式字符串，例如 `{"pull": 8300, "reply": 8400}`。
 *   `--monitor-port`: (已废弃) 仅指定 pull 端口。
 
-### 4.3 YAML 配置示例
+### 4.6 YAML 配置示例
 
 在实际部署中，通常配合 YAML 文件来配置 LMCache 实例。以下是一个包含 Controller 和 P2P 配置的完整示例：
 

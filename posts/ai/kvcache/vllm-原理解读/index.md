@@ -1,7 +1,7 @@
-# LMCache-MoonCake-vLLM源码剖析
+# vLLM 原理解读
 
 
-# LMCache-MoonCake-vLLM 源码剖析
+# vLLM 原理解读
 
 > [!NOTE]
 > 本文基于 vLLM v0.13.0 撰写。
@@ -54,9 +54,45 @@ graph TB
 
 ## 2. LLM Engine Frontend (Process 0) 源码解析
 
-**LLM Engine Frontend (Process 0)** 是用户与 vLLM 交互的入口，主要运行在 CPU 上。vLLM 提供了两种主要的入口类：`AsyncLLM` (用于异步流式服务，如 API Server) 和 `LLM` (用于同步批处理脚本)。
+**LLM Engine Frontend (Process 0)** 是用户与 vLLM 交互的入口，主要运行在 CPU 上。vLLM 提供了多种入口方式，包括 OpenAI Compatible Server (`api_server`)、`AsyncLLM` (用于自定义异步服务) 和 `LLM` (用于同步批处理)。
 
-本节将以 **`AsyncLLM` (流式返回)** 为主线进行剖析，并对比说明 `LLM` (非流式) 的差异。
+本节将首先介绍 **OpenAI API Server** 的架构，然后深入剖析 **`AsyncLLM`** 的核心实现。
+
+### 2.1 OpenAI API Server Architecture
+
+当使用 `vllm serve` 命令启动服务时，请求首先经过 OpenAI API Server 层。该层负责处理 HTTP 请求、协议适配以及 Chat Template 渲染。
+
+*   **文件位置**:
+    *   [api_server.py](vllm/entrypoints/openai/api_server.py): FastAPI 应用入口，负责路由分发。
+    *   [serving_chat.py](vllm/entrypoints/openai/serving_chat.py): `OpenAIServingChat` 类，处理 `/v1/chat/completions` 请求。
+    *   [serving_engine.py](vllm/entrypoints/openai/serving_engine.py): `OpenAIServing` 基类，管理 `EngineClient`。
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as api_server.py (FastAPI)
+    participant Chat as OpenAIServingChat
+    participant AsyncLLM as AsyncLLM
+    
+    User->>API: POST /v1/chat/completions
+    API->>Chat: create_chat_completion()
+    Chat->>Chat: Preprocess (Chat Template, Tools)
+    Chat->>AsyncLLM: generate()
+    
+    activate AsyncLLM
+    AsyncLLM-->>Chat: yield RequestOutput
+    Chat-->>API: yield Chunk (StreamResponse)
+    API-->>User: HTTP Stream
+    deactivate AsyncLLM
+```
+
+`OpenAIServingChat` 在接收到请求后，会进行参数校验、应用 Chat Template 将消息转换为 Prompt，然后调用底层的 `AsyncLLM.generate` 方法提交请求。
+
+对于流式请求 (`stream=True`)，它使用 `chat_completion_stream_generator` 将 `AsyncLLM` 返回的 `RequestOutput` 实时转换为 OpenAI 兼容的 chunk 格式 (`data: {...}`) 并推送给客户端。对于非流式请求，则使用 `chat_completion_full_generator` 收集所有输出后一次性返回。
+
+### 2.2 AsyncLLM Entrypoint (流式返回)
+
+`AsyncLLM` 类是 vLLM 核心引擎的异步入口。无论是通过 API Server 还是直接使用 Python 代码调用，最终都会进入这里。
 
 ```mermaid
 sequenceDiagram
@@ -92,9 +128,7 @@ sequenceDiagram
     end
 ```
 
-### 2.1 AsyncLLM Entrypoint (流式返回)
-
-`AsyncLLM` 类是 vLLM 用于在线服务 (Serving) 的主要入口点。它基于 `asyncio` 实现了完全异步的请求处理流程，通过 `generate` 方法以异步生成器 (Async Generator) 的形式流式返回推理结果。
+`AsyncLLM` 基于 `asyncio` 实现了完全异步的请求处理流程。
 
 *   **文件位置**: [async_llm.py](vllm/v1/engine/async_llm.py)
 *   **核心类**: `AsyncLLM`
@@ -116,9 +150,9 @@ class AsyncLLM(EngineClient):
         self._run_output_handler()
 ```
 
-#### 2.1.1 generate 方法 (流式接口)
+#### 2.2.1 generate 方法 (流式接口)
 
-`generate` 方法是用户发起请求的入口。它首先调用 `add_request` 将请求发送给后端，并获取一个 `asyncio.Queue`，然后通过监听该队列逐个 `yield` 生成的结果。
+`generate` 方法是核心入口。它首先调用 `add_request` 将请求发送给后端，并获取一个 `asyncio.Queue`，然后通过监听该队列逐个 `yield` 生成的结果。
 
 ```python
 # vllm/v1/engine/async_llm.py
@@ -152,7 +186,7 @@ class AsyncLLM(EngineClient):
             raise
 ```
 
-#### 2.1.2 _run_output_handler (后台输出处理)
+#### 2.2.2 _run_output_handler (后台输出处理)
 
 `_run_output_handler` 是一个无限循环的后台任务，它不断从 `EngineCore` 获取输出，并通过 `OutputProcessor` 处理后分发到各个请求的队列中。
 
@@ -175,7 +209,7 @@ class AsyncLLM(EngineClient):
         await output_handler()
 ```
 
-### 2.2 LLM Entrypoint (非流式返回)
+### 2.3 LLM Entrypoint (非流式返回)
 
 `LLM` 类主要用于离线批处理场景。与 `AsyncLLM` 不同，它不使用异步协程，而是通过阻塞循环来等待结果。
 
@@ -229,7 +263,7 @@ class AsyncLLM(EngineClient):
         # ... (构建 EngineCoreRequest 对象)
 ```
 
-### 2.4 AsyncMPClient vs SyncMPClient (跨进程通信)
+### 2.5 AsyncMPClient vs SyncMPClient (跨进程通信)
 
 这两个类负责 **LLM Engine Frontend (Process 0)** 与 **Engine Core Backend (Process 1)** 之间的 ZMQ 通信。
 
@@ -284,7 +318,7 @@ class SyncMPClient(MPClient):
         return outputs
 ```
 
-### 2.5 OutputProcessor (输出后处理)
+### 2.6 OutputProcessor (输出后处理)
 
 `OutputProcessor` 负责处理从 EngineCore 返回的 `EngineCoreOutputs`，执行反分词 (Detokenization) 并更新请求状态。对于 `AsyncLLM`，它还将更新后的 `RequestOutput` 放入每个请求对应的 `asyncio.Queue` 中。
 
@@ -328,29 +362,28 @@ class SyncMPClient(MPClient):
 sequenceDiagram
     participant P0 as LLM Engine Frontend (Process 0)
     participant CoreProc as EngineCoreProc
-    participant Core as EngineCore
     participant Sched as Scheduler
-    participant Exec as MultiprocExecutor
+    participant Exec as Executor
+    participant Workers as Model Workers
 
     loop Busy Loop
         CoreProc->>CoreProc: _process_input_queue()
         P0->>CoreProc: New Requests (ZMQ)
         
-        CoreProc->>Core: step()
-        Core->>Sched: schedule()
-        Sched-->>Core: SchedulerOutput (Token/Block Alloc)
+        CoreProc->>CoreProc: step()
+        CoreProc->>Sched: schedule()
+        Sched-->>CoreProc: SchedulerOutput (Token/Block Alloc)
         
-        Core->>Exec: execute_model(scheduler_output)
+        CoreProc->>Exec: execute_model(scheduler_output)
         activate Exec
-        Exec->>Process2N: Broadcast Execute Command (RPC)
-        Process2N-->>Exec: Model Output (Hidden States)
+        Exec->>Workers: execute_model (RPC / Broadcast)
+        Workers-->>Exec: Model Output (Hidden States)
         deactivate Exec
-        Exec-->>Core: ModelOutput
+        Exec-->>CoreProc: ModelOutput
         
-        Core->>Sched: update_from_output(model_output)
-        Sched-->>Core: EngineCoreOutputs
+        CoreProc->>Sched: update_from_output(model_output)
+        Sched-->>CoreProc: EngineCoreOutputs
         
-        Core-->>CoreProc: EngineCoreOutputs
         CoreProc->>P0: Return Results (ZMQ)
     end
 ```
@@ -359,7 +392,10 @@ sequenceDiagram
 
 `EngineCoreProc` 是 `EngineCore` 的子类，专门用于在后台进程中运行。它的核心是 `run_busy_loop` 方法，该方法在一个无限循环中不断处理输入队列的请求并执行引擎步进。
 
-*   **文件位置**: [core.py](vllm/v1/engine/core.py#L553)
+*   **进程启动**: `EngineCoreProc` 进程由 `CoreEngineProcManager` 管理和启动。
+    *   **文件位置**: [utils.py](vllm/v1/engine/utils.py#L130)
+    *   **关键代码**: `context.Process(target=target_fn, ...)`
+*   **类定义**: [core.py](vllm/v1/engine/core.py#L553)
 
 ```python
 # vllm/v1/engine/core.py
@@ -496,13 +532,17 @@ class EngineCore:
             # ...
 ```
 
-### 3.4 MultiprocExecutor: 多进程执行器
+### 3.4 Executor: 模型执行器
 
-`MultiprocExecutor` 负责管理一组 Model Worker 进程 (Process 2~N)。它通过 `collective_rpc` 方法实现向所有 Worker 广播指令并收集结果。
+Executor 负责管理模型 Worker 并协调模型的执行。vLLM 提供了多种 Executor 实现，最常用的是 `MultiprocExecutor` (多进程) 和 `UniProcExecutor` (单进程)。
+
+#### 3.4.1 MultiprocExecutor (多进程)
+
+`MultiprocExecutor` 用于多 GPU 场景 (Tensor Parallelism)。它管理一组 Model Worker 进程 (Process 2~N)，并通过 `collective_rpc` 方法向所有 Worker 广播指令并收集结果。
 
 *   **文件位置**: [multiproc_executor.py](vllm/v1/executor/multiproc_executor.py)
 
-#### 3.4.1 collective_rpc (分布式通信)
+##### collective_rpc (分布式通信)
 
 这是 `MultiprocExecutor` 的核心通信方法。它支持非阻塞 (`non_block=True`) 调用，这对于 `EngineCore` 的异步流水线至关重要。
 
@@ -541,6 +581,37 @@ class EngineCore:
             
         # 4. 阻塞模式：等待结果
         # ...
+```
+
+#### 3.4.2 UniProcExecutor (单进程)
+
+`UniProcExecutor` 通常用于单 GPU 场景。在这种模式下，**Model Worker 直接运行在 EngineCoreProc 进程内部**，没有额外的 Worker 进程。
+
+*   **文件位置**: [uniproc_executor.py](vllm/v1/executor/uniproc_executor.py)
+*   **调用栈**:
+    1.  `EngineCore.step()` 调用 `UniProcExecutor.execute_model()`
+    2.  `UniProcExecutor.collective_rpc()` 通过 `run_method` 直接调用本地对象 (`self.driver_worker`)
+    3.  `WorkerWrapperBase.execute_model()` 拦截调用
+    4.  `Worker.execute_model()` 执行模型逻辑
+    5.  `GPUModelRunner.execute_model()` -> `_model_forward()`
+
+```mermaid
+sequenceDiagram
+    participant Core as EngineCore
+    participant Exec as UniProcExecutor
+    participant Wrap as WorkerWrapperBase
+    participant Worker as Worker
+    participant Runner as GPUModelRunner
+
+    Core->>Exec: execute_model()
+    Exec->>Wrap: execute_model() (Direct Call)
+    Wrap->>Worker: execute_model()
+    Worker->>Runner: execute_model()
+    Runner->>Runner: _model_forward()
+    Runner-->>Worker: ModelOutput
+    Worker-->>Wrap: ModelOutput
+    Wrap-->>Exec: ModelOutput
+    Exec-->>Core: ModelOutput
 ```
 
 ## 4. Model Worker (Process 2~N) 源码解析
@@ -697,11 +768,76 @@ class AsyncGPUModelRunnerOutput(AsyncModelRunnerOutput):
         return output
 ```
 
-## 5. LMCache 源码剖析
+## 5. 显存管理与调度机制详解
 
-*(待补充: LMCache 集成细节)*
+本节深入探讨 vLLM 如何管理 GPU 显存以及请求在不同状态间的流转机制。
 
-### 5.1 潜在集成点 (Hypothesis)
+### 5.1 显存占用原理解析 (Memory Occupancy)
+
+很多用户观察到 vLLM 启动后会立即占用大量 GPU 显存 (默认约为 90%)，这是由 vLLM 的 **Block Manager** 预分配机制决定的。
+
+*   **配置参数**: `gpu_memory_utilization` (默认 0.9)。
+*   **初始化流程** (`vllm/v1/worker/gpu_worker.py`):
+    1.  **Memory Snapshot**: 启动时测量 GPU 总显存。
+    2.  **Profile Run**: 运行一次模拟推理，测量模型权重 (Weights) 和激活值 (Activations) 所需的峰值显存。
+    3.  **预分配 (Pre-allocation)**:
+        ```python
+        available_kv_cache_memory = total_memory * gpu_memory_utilization - model_weights - peak_activations
+        ```
+    4.  **Block 计算**: 将剩余的 `available_kv_cache_memory` 全部按 `block_size` (如 16 或 32 tokens) 划分为一个个 KV Cache Block。
+
+**结论**: vLLM 实际上是"预定"了这部分显存用于未来的 KV Cache，以避免运行时的显存碎片化和频繁申请开销。因此，`nvidia-smi` 看到的显存占用是符合预期的。
+
+### 5.2 请求状态机 (FSM)
+
+vLLM 的调度器 (`Scheduler`) 维护着请求的状态流转。主要的请求状态如下：
+
+*   **WAITING**: 新到达的请求，或者被抢占 (Preempted) 的请求。等待被调度。
+*   **RUNNING**: 正在 GPU 上执行推理的请求。已分配了 KV Cache 块。
+*   **PREEMPTED**: 因显存不足而被暂停的请求。其显存块已被释放 (或标记为可驱逐)。
+*   **WAITING_FOR_REMOTE_KVS**: (v1 特性) 等待从远程 (如其它 Worker 或 CPU) 加载 KV Cache。
+
+```mermaid
+stateDiagram-v2
+    [*] --> WAITING: add_request
+    
+    WAITING --> RUNNING: schedule() [Resources Available]
+    
+    RUNNING --> PREEMPTED: schedule() [Insufficient Blocks]
+    note right of PREEMPTED: Blocks freed\nPrepend to Waiting Queue
+    
+    PREEMPTED --> WAITING: Immediate transition\n(Logically)
+    
+    RUNNING --> [*]: Finished
+    
+    WAITING --> WAITING_FOR_REMOTE_KVS: Async KV Load
+    WAITING_FOR_REMOTE_KVS --> WAITING: Load Complete
+```
+
+### 5.3 KV Cache 的生命周期管理
+
+KV Cache 的管理由 `KVCacheManager` (`vllm/v1/core/kv_cache_manager.py`) 负责。
+
+#### 5.3.1 分配 (Allocation)
+当请求从 `WAITING` 转变为 `RUNNING` 时，调度器调用 `allocate_slots`：
+*   根据新生成的 Token 数量计算需要的 Block 数。
+*   如果 **Block Pool** 中有足够的空闲块，则分配并建立映射。
+*   如果开启了 **Prefix Caching**，则尝试复用已有的 Block (通过 Hash 匹配)。
+
+#### 5.3.2 抢占与释放 (Preemption & Free)
+当显存不足以容纳所有 `RUNNING` 请求的新 Token 时，调度器会触发 **抢占 (Preemption)**：
+1.  **选择受害者**: 通常基于优先级 (Priority) 或先来后到 (FCFS) 选择优先级最低的请求。
+2.  **执行抢占 (`_preempt_request`)**:
+    *   调用 `kv_cache_manager.free(request)`。
+    *   **关键机制**: 在 vLLM V1 中，`free` 操作会将 Block 的引用计数减一。
+        *   如果引用计数归零，Block 返回空闲池 (Free Pool)。
+        *   如果开启 Prefix Caching，Block 数据实际上可能仍保留在显存中，成为"幽灵块" (Evictable but valid)，直到被新数据覆盖。
+3.  **状态重置**: 请求状态变为 `PREEMPTED`，`num_computed_tokens` 重置为 0 (意味着下次调度时可能需要**重计算**，除非 Prefix Caching 命中)。
+
+> [!TIP]
+> **关于 Swap**: 在 vLLM V0 中，抢占通常伴随着 **Swap Out** (GPU -> CPU)。但在 vLLM V1 的当前实现中 (尤其是 Disaggregated 架构)，更倾向于直接释放并依赖 **Prefix Caching** 或 **重计算 (Recomputation)**，或者是通过异步 KV 传输机制处理。
+
+## 5. LMCache 潜在集成点 (Hypothesis)
 
 基于 vLLM V1 的架构分析，LMCache 可能在以下环节与 vLLM 集成：
 
@@ -709,7 +845,7 @@ class AsyncGPUModelRunnerOutput(AsyncModelRunnerOutput):
 2.  **Engine Core Backend (Process 1)**: 调度器 (`Scheduler`) 可能需要感知 LMCache 的状态（如哪些 Block 在远程缓存中），以便进行 Cache-aware Scheduling。
 3.  **Model Worker (Process 2~N)**: 在 `GPUModelRunner.execute_model` 中，通过 `kv_connector` (见 4.3 节) 触发 KV Cache 的预取 (Prefetch) 或卸载 (Offload)。
 
-## 6. MoonCake 源码剖析
+## 7. MoonCake 潜在集成点 (Hypothesis)
 
 *(待补充: MoonCake 集成细节)*
 
@@ -720,8 +856,6 @@ I0107 01:41:52.260730    21 master_service.cpp:1453] client_id=10253985089986823
 I0107 01:41:52.342777    21 master_service.cpp:1515] client_id=10253985089986823087-7215197135771319975, segment_name=vllm-server:14130, action=unmount_expired_segment
 I0107 01:41:52.813350    24 rpc_service.cpp:39] Master Metrics: Mem Storage: 0 B / 0 B | SSD Storage: 0 B / 0 B | Keys: 0 (soft-pinned: 0) | Clients: 0 | Requests (Success/Total): PutStart=5/5, PutEnd=5/5, PutRevoke=0/0, Get=0/0, Exist=6/6, Del=0/0, DelAll=0/0, Ping=608/608,  | Batch Requests (Req=Success/PartialSuccess/Total, Item=Success/Total): PutStart:(Req=0/0/0, Item=0/0), PutEnd:(Req=0/0/0, Item=0/0), PutRevoke:(Req=0/0/0, Item=0/0), Get:(Req=1/0/1, Item=1/1), ExistKey:(Req=0/0/0, Item=0/0), QueryIp:(Req=0/0/0, Item=0/0), Clear:(Req=0/0/0, Item=0/0),  | Eviction: Success/Attempts=0/0, keys=0, size=0 B | Discard: Released/Total=0/0, StagingSize=0 B
 ```
-
-### 6.1 潜在集成点 (Hypothesis)
 
 MoonCake 作为分布式 KV Cache 存储，预计会涉及跨节点的通信：
 

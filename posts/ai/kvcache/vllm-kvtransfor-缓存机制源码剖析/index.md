@@ -1,7 +1,7 @@
-# vLLM-KVTransformer 缓存机制源码剖析
+# vLLM-KVTransfor 缓存机制源码剖析
 
 
-# vLLM-KVTransformer 缓存机制源码剖析
+# vLLM-KVTransfor 缓存机制源码剖析
 
 > [!NOTE]
 > 本文基于 vLLM 最新代码（v1 架构）撰写，重点剖析其 KV Cache 传输与复用机制。
@@ -380,7 +380,135 @@ extra_config:
 *   **`remote_url`**: 指定远程存储后端。例如使用 Redis 作为共享存储：`redis://localhost:6379`。
 *   **`enable_p2p`**: 是否开启 Worker 间的 P2P 直连。
 
-## 7. 总结
+## 7. LMCache 缓存命中机制与调试分析
+
+在实际使用中，理解 vLLM 如何决定“复用本地缓存”还是“从远端加载”至关重要。本节将结合日志现象、源码逻辑及调试方案，深入剖析这一机制。
+
+### 7.1 核心机制：本地优先 (Local First)
+
+vLLM V1 的调度器 (Scheduler) 遵循 **“本地显存优先，远端存储为辅”** 的原则。只有当本地没有命中的缓存块时，才会尝试从 KV Connector (如 LMCache) 加载数据。
+
+以下时序图展示了这一决策流程：
+
+```mermaid
+sequenceDiagram
+    participant Req as Request
+    participant Sched as Scheduler
+    participant KVM as KVCacheManager
+    participant Conn as KVConnector(LMCache)
+    
+    Req->>Sched: Arrive (Tokens)
+    Sched->>KVM: get_computed_blocks(request)
+    KVM-->>Sched: num_local_hit (Prefix Cache)
+    
+    alt num_local_hit > 0 (本地命中)
+        Sched->>Sched: Use Local Cache
+        Note over Sched: Skip Connector Load
+    else num_local_hit == 0 (本地未命中/被禁用)
+        Sched->>Conn: get_num_new_matched_tokens()
+        Conn-->>Sched: num_remote_hit
+        
+        alt num_remote_hit > 0
+            Sched->>Sched: need_to_allocate = num_remote_hit
+            Sched->>Conn: Load KV Async
+        end
+    end
+```
+
+### 7.2 源码级逻辑解析
+
+这一优先级的代码实现主要集中在 `Scheduler` 和 `LMCacheAdapter` 中。
+
+#### 1. 调度器的优先判定
+
+Scheduler 会首先检查 `get_computed_blocks`。如果本地已经有计算好的 Block（Prefix Caching 命中），则直接使用，**不会** 再去问 Connector 要数据。
+
+```python
+# [vllm/v1/core/sched/scheduler.py:L476-L489](file:///Users/admin/Documents/Docs/HugoBlogs/external/vllm/vllm/v1/core/sched/scheduler.py#L476-L489)
+# Get already-cached tokens.
+if request.num_computed_tokens == 0:
+    # 1. 优先获取本地缓存 (Prefix Caching)
+    new_computed_blocks, num_new_local_computed_tokens = (
+        self.kv_cache_manager.get_computed_blocks(request)
+    )
+
+    # 2. 仅当本地命中数确定后，才结合本地情况查询外部缓存
+    if self.connector is not None:
+        ext_tokens, load_kv_async = (
+            self.connector.get_num_new_matched_tokens(
+                request, num_new_local_computed_tokens  # <--- 传入本地已匹配数
+            )
+        )
+```
+
+#### 2. LMCache 的分配计算
+
+在 Adapter 层，决定是否从远端加载的公式非常直观：**远端命中的 Token 数 减去 本地已有的 Token 数**。
+
+```python
+# [lmcache/integration/vllm/vllm_v1_adapter.py:L1581](file:///Users/admin/Documents/Docs/HugoBlogs/external/LMCache/lmcache/integration/vllm/vllm_v1_adapter.py#L1581)
+# need_to_allocate: 真正需要从远端传输的 Token 数
+need_to_allocate = num_external_hit_tokens - num_computed_tokens
+```
+
+### 7.3 日志分析实例
+
+> [!NOTE]
+> **现象**：用户观察到日志 `Total tokens 37, LMCache hit tokens: 32, need to load: 0`。
+
+根据上述公式，我们可以精准还原其背后的逻辑：
+
+1.  **`num_external_hit_tokens` = 32**: LMCache 在远端 (Mooncake) 成功找到了 32 个 Token (通常是因为 32 是 Chunk Size 16 的倍数，发生了 **Chunk Alignment**，尾部 5 个 Token 被忽略)。
+2.  **`need_to_allocate` = 0**: 意味着 `32 - num_computed_tokens <= 0`。
+3.  **结论**: `num_computed_tokens` 至少为 32。这说明 vLLM **已经在本地显存中找到了这些数据**。
+
+### 7.4 调试技巧：如何强制读取 Remote Cache？
+
+在开发或调试 LMCache/Mooncake 时，我们经常需要验证“远端传输”链路是否通畅。如果 vLLM 总是命中本地缓存，就无法触发传输逻辑。
+
+此时，我们需要**禁用 vLLM 的 Prefix Caching**，并确保 LMCache 不使用本地层。
+
+> [!TIP]
+> **调试配置方案**：通过以下两步操作，可以强制 vLLM 忽略本地缓存，必然发起远程读取请求。
+
+#### 步骤 1：禁用 vLLM Prefix Caching
+
+在 vLLM 启动参数中添加 `--no-enable-prefix-caching`。
+
+这将导致 `KVCacheManager.get_computed_blocks` 强制返回 0。
+
+```python
+# [vllm/v1/core/kv_cache_manager.py](file:///Users/admin/Documents/Docs/HugoBlogs/external/vllm/vllm/v1/core/kv_cache_manager.py)
+def get_computed_blocks(self, request: Request) -> tuple[KVCacheBlocks, int]:
+    # 禁用缓存时，直接返回空和 0
+    if not self.enable_caching or request.skip_reading_prefix_cache:
+        return self.empty_kv_cache_blocks, 0
+```
+
+#### 步骤 2：禁用 LMCache 本地缓存
+
+修改 LMCache 配置文件（`lmcache_config.yaml`），关闭本地 CPU 和磁盘缓存，迫使请求穿透到 Remote Backend。
+
+```yaml
+chunk_size: 256
+pipelined_backend:
+  local_cpu: false      # [Debug] 禁用本地 CPU 缓存
+  local_disk: false     # [Debug] 禁用本地磁盘缓存
+  remote_url: "lm://..." 
+  remote_serde: "cachegen"
+```
+
+#### 预期结果
+
+配置生效后，再次运行相同请求，日志将变为：
+
+```text
+Total tokens 37, LMCache hit tokens: 32, need to load: 32
+```
+
+此时 `need_to_allocate = 32 - 0 = 32`，系统将成功触发从 Mooncake 到 GPU 的数据传输。
+
+## 8. 总结
 
 vLLM V1 的 KV Transfer 机制展示了极高的灵活性，为大模型推理的性能优化提供了广阔空间：
 

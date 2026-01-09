@@ -388,6 +388,53 @@ flowchart TD
     InitClass --> Ready[Ready to Serve]
 ```
 
+## 5. 多实例协同与 Controller (Cluster Synergy)
+
+在多实例部署场景下（如分布式推理或分离式服务），LMCache Controller 扮演着 **"大脑"** 的角色，而各个 vLLM 实例则是 **"手脚"**。
+
+### 5.1 元数据上报机制 (Metadata Reporting)
+
+Controller 能够感知集群数据的关键在于 **主动上报**。所有具备本地存储能力的后端（主要是 `LocalCPUBackend` 和 `LocalDiskBackend`）都会在数据写入或驱逐时，通过 `BatchedMessageSender` 向 Controller 发送元数据变更事件。
+
+*   **可见性范围**：
+    *   **Local CPU**: ✅ 可见。数据存入本地内存时立即上报。
+    *   **Local Disk**: ✅ 可见。数据刷入磁盘时上报。
+    *   **Remote Backend**: ❌ 通常不可见。Remote Backend 被视为"哑"存储，Controller 默认不跟踪其内容（除非由 Controller 主动发起的迁移）。
+    *   **P2P Backend**: ❌ 自身不存储数据，它依赖 Local CPU 来缓存从对端拉取的数据，因此间接可见。
+
+### 5.2 全局视图构建
+
+Controller 接收到来自不同 Instance 的 `Admit` (新增) 和 `Evict` (移除) 消息后，会在内存中构建一棵全局的 `RegistryTree`。
+
+```mermaid
+graph LR
+    subgraph "Instance A"
+        CPU1[LocalCPU] -->|Admit/Evict| Sender1[MsgSender]
+        Disk1[LocalDisk] -->|Admit/Evict| Sender1
+    end
+    
+    subgraph "Instance B"
+        CPU2[LocalCPU] -->|Admit/Evict| Sender2[MsgSender]
+        Disk2[LocalDisk] -->|Admit/Evict| Sender2
+    end
+    
+    Sender1 -->|Async Batch| Controller
+    Sender2 -->|Async Batch| Controller
+    
+    Controller --> Registry[Global RegistryTree]
+    
+    style Controller fill:#f9f,stroke:#333
+    style Registry fill:#ff9,stroke:#333
+```
+
+> **纠正：P2P 是否必须依赖 Controller？**
+>
+> 这是一个常见的误区。目前 LMCache 的 P2P 机制主要用于 **分离式推理 (Disaggregated Prefill / XpYd)** 场景：
+> *   **分离式推理** -> **不依赖 Controller**。
+>     *   在此模式下（配置 `enable_pd=True`），Prefiller 和 Decoder 之间的传输关系通常是 **静态配置** 或由 **Proxy** 调度的。
+>     *   Prefiller 产生 KV Cache 后，直接 **Push** 给指定的 Decoder，无需 Controller 介入查找。
+>     *   相关组件为 `PDBackend`，它绕过了标准的 Metadata 上报流程。
+
 ## 6. 配置系统详解 (Configuration System)
 
 LMCache 采用了一套灵活的动态配置系统，支持 **YAML 配置文件** 和 **环境变量** 双重输入。配置定义位于 `external/lmcache/v1/config.py`，核心类 `LMCacheEngineConfig` 通过 `dataclass` 动态生成。
