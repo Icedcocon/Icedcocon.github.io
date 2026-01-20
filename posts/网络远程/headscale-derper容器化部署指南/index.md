@@ -22,12 +22,12 @@
 > [!NOTE]
 > 本指南将使用以下端口。如果您的环境中这些端口已被占用，可以自行修改并更新所有相关配置文件。请确保服务器防火墙已放行这些端口。
 
-| 服务 | 协议 | 端口 | 用途 |
-| --- | --- | --- | --- |
-| Headscale | TCP | `8080` | 用于 Tailscale 客户端与 Headscale API 的通信和管理。 |
-| Derper | TCP | `30443` | Derper 的 HTTPS 服务端口，用于中继加密流量。 |
-| Derper | TCP | `30080` | Derper 的 HTTP 服务端口，主要用于服务健康检查或重定向。 |
-| Derper | UDP | `3478` | STUN 服务端口，用于帮助 NAT 后面的设备发现其公网 IP 和端口，以尝试建立 P2P 连接。 |
+| 服务        | 协议  | 端口      | 用途                                                 |
+| --------- | --- | ------- | -------------------------------------------------- |
+| Headscale | TCP | `8080`  | 用于 Tailscale 客户端与 Headscale API 的通信和管理。            |
+| Derper    | TCP | `30443` | Derper 的 HTTPS 服务端口，用于中继加密流量。                      |
+| Derper    | TCP | `30080` | Derper 的 HTTP 服务端口，主要用于服务健康检查或重定向。                 |
+| Derper    | UDP | `3478`  | STUN 服务端口，用于帮助 NAT 后面的设备发现其公网 IP 和端口，以尝试建立 P2P 连接。 |
 
 ## 部署 Derper 中继服务器
 
@@ -112,10 +112,19 @@ docker-compose up -d
 
 ```bash
 # 仓库克隆
-git clone https://mirror.ghproxy.com/https://github.com/yangchuansheng/ip_derper.git
+git clone https://ghfast.top/https://github.com/yangchuansheng/ip_derper.git
 cd ip_derper
 git submodule update --init --recursive
 vim tailscale/cmd/derper/cert.go
+```
+
+项目结构如下
+
+```bash
+ip_derper
+├── build_cert.sh    # 构建所需的自签名证书生成脚本（代码见后续文档）
+├── Dockerfile       # （代码见后续文档）
+└── tailscale        # 最新的 tailscale 仓库代码
 ```
 
 #### 修改源码
@@ -141,9 +150,7 @@ func (m *manualCertManager) getCertificate(hi *tls.ClientHelloInfo) (*tls.Certif
 
 ```dockerfile
 # 多阶段构建: 第一阶段编译 Derper
-FROM golang:latest AS builder
-
-LABEL org.opencontainers.image.source https://github.com/yangchuansheng/ip_derper
+FROM docker.1ms.run/library/golang:latest AS builder
 
 WORKDIR /app
 
@@ -156,17 +163,17 @@ RUN cd /app/tailscale/cmd/derper && \
     rm -rf /app/tailscale
 
 # 第二阶段: 创建运行环境
-FROM ubuntu:20.04
+FROM docker.1ms.run/library/ubuntu:24.04
 WORKDIR /app
 
 # 环境变量配置
-ENV DERP_ADDR :30443
-ENV DERP_HTTP_PORT 30080
-ENV STUN_PORT 3478
+ENV DERP_ADDR=:30443
+ENV DERP_HTTP_PORT=30080
+ENV STUN_PORT=3478
 ENV DERP_HOST=127.0.0.1
 ENV DERP_CERTS=/app/certs/
-ENV DERP_STUN true
-ENV DERP_VERIFY_CLIENTS false
+ENV DERP_STUN=true
+ENV DERP_VERIFY_CLIENTS=false
 
 # 安装必要依赖
 RUN apt-get update && \
@@ -228,9 +235,9 @@ subjectAltName = @alt_names
 IP.1 = $CERT_HOST
 " > "$CONF_FILE"
 
-# 创建证书目录并生成自签名证书，有效期730天(2年)
+# 创建证书目录并生成自签名证书，有效期1825天(5年)
 mkdir -p "$CERT_DIR"
-openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout "$CERT_DIR/$CERT_HOST.key" -out "$CERT_DIR/$CERT_HOST.crt" -config "$CONF_FILE"
+openssl req -x509 -nodes -days 1825 -newkey rsa:2048 -keyout "$CERT_DIR/$CERT_HOST.key" -out "$CERT_DIR/$CERT_HOST.crt" -config "$CONF_FILE"
 ```
 
 > [!TIP]
@@ -242,14 +249,27 @@ openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout "$CERT_DIR/$CERT_HOS
 
 ```bash
 # 编译镜像
-docker build -t ip_derper:1.76.1 .
+docker build -t ip_derper:1.92.5 .
 
 # 启动容器
-docker run \
-    --restart always \
-    --net host \
-    --name derper \
-    -d ip_derper:1.76.1 # 或使用预构建镜像: ghcr.io/yangchuansheng/ip_derper
+# docker run \
+#     --restart always \
+#     --net host \
+#     --name derper \
+#     -d ip_derper:1.92.5 # 或使用预构建镜像: ghcr.io/yangchuansheng/ip_derper
+
+```yaml
+version: '3'
+services:
+  # headscale:
+  #   ... (Headscale 配置省略)
+
+  derper:
+    image: ip_derper:1.92.5
+    container_name: derper
+    restart: always
+    network_mode: "host"
+```
 ```
 
 > [!TIP]
@@ -286,7 +306,7 @@ mkdir -p container-data/data
 mkdir -p web
 
 # 克隆特定版本的 Headscale 仓库
-git clone -b v0.26.1 https://ghproxy.net/https://github.com/juanfont/headscale.git headscale-repo
+git clone -b v0.26.1 https://ghfast.top/https://github.com/juanfont/headscale.git headscale-repo
 # 复制示例配置文件
 cp headscale-repo/config-example.yaml container-config/config.yaml
 cd headscale-repo
@@ -327,7 +347,7 @@ wait
 
 创建 `Caddyfile` 文件，用于配置 Headscale 的 Web 界面和 API 代理：
 
-- 1. **使用 HTTP 部署时**
+- 1. **使用 HTTP （IP）部署时**
 
 ```
 {
@@ -354,7 +374,7 @@ wait
 }
 ```
 
-- 1. **使用 HTTPS 部署时**
+- 1. **使用 HTTPS（有证书） 部署时**
 
 ```
 {
@@ -449,7 +469,7 @@ wait
 
 ```dockerfile
 # 多阶段构建: 第一阶段编译 Headscale
-FROM golang:1.24-bookworm AS build
+FROM golang:1.25-bookworm AS build
 ARG VERSION=dev
 ENV GOPATH=/go
 WORKDIR /go/src/headscale
@@ -542,7 +562,7 @@ version: '3'
 
 services:
   headscale:
-    image: headscale/headscale:v0.26.1
+    image: headscale/headscale:v0.28.0.beta
     container_name: headscale
     restart: unless-stopped
     environment:
@@ -554,8 +574,7 @@ services:
       - ./container-data/data:/var/lib/headscale
       - ./Caddyfile:/data/Caddyfile
       - ./derper.json:/web/derper.json
-      - /root/nginx-proxy-manager/letsencrypt:/etc/ssl/certs/letsencrypt:ro
-    ports:
+      # - /root/nginx-proxy-manager/letsencrypt:/etc/ssl/certs/letsencrypt:ro
       - "8080:443"
     cap_add:
       - NET_ADMIN
@@ -564,6 +583,12 @@ services:
       - net.ipv4.ip_forward=1
     security_opt:
       - no-new-privileges:true
+
+  derper:
+    image: ip_derper:1.92.5
+    container_name: derper
+    restart: always
+    network_mode: "host"
 ```
 
 最后，启动 Headscale 服务：

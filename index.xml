@@ -1,4 +1,12 @@
-<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>小饭的技术站</title><link>https://www.65811786.xyz/</link><description>小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Thu, 08 Jan 2026 10:09:16 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/index.xml" rel="self" type="application/rss+xml"/><item><title>LMCache Controller 解读</title><link>https://www.65811786.xyz/posts/ai/kvcache/lmcache-controller-%E8%A7%A3%E8%AF%BB/</link><pubDate>Thu, 08 Jan 2026 10:09:16 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/kvcache/lmcache-controller-%E8%A7%A3%E8%AF%BB/</guid><description><![CDATA[<h1 id="lmcache-controller-解读" class="headerLink">
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>小饭的技术站</title><link>https://www.65811786.xyz/</link><description>小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Mon, 19 Jan 2026 09:59:58 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/index.xml" rel="self" type="application/rss+xml"/><item><title>KV Cache 对推理效率的影响</title><link>https://www.65811786.xyz/posts/ai/kvcache/kv-cache-%E5%AF%B9%E6%8E%A8%E7%90%86%E6%95%88%E7%8E%87%E7%9A%84%E5%BD%B1%E5%93%8D/</link><pubDate>Mon, 19 Jan 2026 09:59:58 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/kvcache/kv-cache-%E5%AF%B9%E6%8E%A8%E7%90%86%E6%95%88%E7%8E%87%E7%9A%84%E5%BD%B1%E5%93%8D/</guid><description><![CDATA[<h2 id="0-计算量分析" class="headerLink">
+    <a href="#0-%e8%ae%a1%e7%ae%97%e9%87%8f%e5%88%86%e6%9e%90" class="header-mark"></a>13 0 计算量分析</h2><div class="details admonition note open">
+    <div class="details-summary admonition-title">
+        <span class="icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg></span>Note<span class="details-icon"><svg class="icon"
+    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
+    </div>
+    <div class="details-content">
+        <div class="admonition-content"><p><code>FLOPs</code>：floating point operations 指的是浮点运算次数，一般特指乘加运算次数，<strong>理解为计算量</strong>，可以用来衡量算法/模型时间的复杂度。</p>]]></description></item><item><title>LMCache Controller 解读</title><link>https://www.65811786.xyz/posts/ai/kvcache/lmcache-controller-%E8%A7%A3%E8%AF%BB/</link><pubDate>Thu, 08 Jan 2026 10:09:16 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/kvcache/lmcache-controller-%E8%A7%A3%E8%AF%BB/</guid><description><![CDATA[<h1 id="lmcache-controller-解读" class="headerLink">
     <a href="#lmcache-controller-%e8%a7%a3%e8%af%bb" class="header-mark"></a>LMCache Controller 解读</h1><p>LMCache Controller 是 LMCache 系统中的核心管控组件，负责集群内的 KV Cache 管理、元数据同步以及 P2P 通信协调。本文将基于官方文档，深入解读 Controller 的架构设计、核心功能接口以及部署配置。</p>]]></description></item><item><title>LMCache原理解读</title><link>https://www.65811786.xyz/posts/ai/kvcache/lmcache-%E5%8E%9F%E7%90%86%E8%A7%A3%E8%AF%BB/</link><pubDate>Wed, 07 Jan 2026 19:55:23 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/kvcache/lmcache-%E5%8E%9F%E7%90%86%E8%A7%A3%E8%AF%BB/</guid><description><![CDATA[<h1 id="lmcache-原理解读" class="headerLink">
     <a href="#lmcache-%e5%8e%9f%e7%90%86%e8%a7%a3%e8%af%bb" class="header-mark"></a>LMCache 原理解读</h1><p>LMCache 是一个专为大语言模型（LLM）设计的 KV Cache 存储与管理系统，旨在通过高效的缓存机制加速 Context 复用，降低首字延迟（TTFT）。它支持多种存储后端（Local CPU, Disk, Redis, Remote 等），并能无缝集成到 vLLM 等推理框架中。</p>]]></description></item><item><title>vLLM-KVTransfor 缓存机制源码剖析</title><link>https://www.65811786.xyz/posts/ai/kvcache/vllm-kvtransfor-%E7%BC%93%E5%AD%98%E6%9C%BA%E5%88%B6%E6%BA%90%E7%A0%81%E5%89%96%E6%9E%90/</link><pubDate>Tue, 06 Jan 2026 11:19:48 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/kvcache/vllm-kvtransfor-%E7%BC%93%E5%AD%98%E6%9C%BA%E5%88%B6%E6%BA%90%E7%A0%81%E5%89%96%E6%9E%90/</guid><description><![CDATA[<h1 id="vllm-kvtransfor-缓存机制源码剖析" class="headerLink">
     <a href="#vllm-kvtransfor-%e7%bc%93%e5%ad%98%e6%9c%ba%e5%88%b6%e6%ba%90%e7%a0%81%e5%89%96%e6%9e%90" class="header-mark"></a>vLLM-KVTransfor 缓存机制源码剖析</h1><div class="details admonition note open">
@@ -42,146 +50,4 @@
     xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
     </div>
     <div class="details-content">
-        <div class="admonition-content"><p>本文旨在深入分析 vLLM (V1 Engine) 的核心指标计算逻辑，重点关注以下关键指标的实现原理与代码位置：</p>]]></description></item><item><title>logging 快速入门</title><link>https://www.65811786.xyz/posts/python/logging-%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8/</link><pubDate>Tue, 11 Nov 2025 15:18:22 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/python/logging-%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8/</guid><description><![CDATA[<div class="code-block highlight is-closed show-line-numbers  tw-group tw-my-2">
-  <div class="
-    
-    tw-flex 
-    tw-flex-row
-    tw-flex-1 
-    tw-justify-between 
-    tw-w-full tw-bg-bgColor-secondary
-    ">      
-    <button 
-      class="
-        code-block-button
-        tw-mx-2 
-        tw-flex
-        tw-flex-row
-        tw-flex-1"
-      aria-hidden="true">
-          <div class="group-[.is-open]:tw-rotate-90 tw-transition-[transform] tw-duration-500 tw-ease-in-out print:!tw-hidden tw-w-min tw-h-min tw-my-1 tw-mx-1"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M285.476 272.971L91.132 467.314c-9.373 9.373-24.569 9.373-33.941 0l-22.667-22.667c-9.357-9.357-9.375-24.522-.04-33.901L188.505 256 34.484 101.255c-9.335-9.379-9.317-24.544.04-33.901l22.667-22.667c9.373-9.373 24.569-9.373 33.941 0L285.475 239.03c9.373 9.372 9.373 24.568.001 33.941z"/></svg></div>
-          <p class="tw-select-none !tw-my-1">python</p>
-      </button>
-
-   <div class="tw-flex">
-      <button 
-        class="
-          line-number-button
-          tw-mx-2 
-          tw-hidden 
-          group-[.is-open]:tw-block 
-          group-[.show-line-numbers]:tw-text-fgColor-link 
-          print:!tw-hidden" 
-        title="Toggle line numbers"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M61.77 401l17.5-20.15a19.92 19.92 0 0 0 5.07-14.19v-3.31C84.34 356 80.5 352 73 352H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8h22.83a157.41 157.41 0 0 0-11 12.31l-5.61 7c-4 5.07-5.25 10.13-2.8 14.88l1.05 1.93c3 5.76 6.29 7.88 12.25 7.88h4.73c10.33 0 15.94 2.44 15.94 9.09 0 4.72-4.2 8.22-14.36 8.22a41.54 41.54 0 0 1-15.47-3.12c-6.49-3.88-11.74-3.5-15.6 3.12l-5.59 9.31c-3.72 6.13-3.19 11.72 2.63 15.94 7.71 4.69 20.38 9.44 37 9.44 34.16 0 48.5-22.75 48.5-44.12-.03-14.38-9.12-29.76-28.73-34.88zM496 224H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zm0-160H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16V80a16 16 0 0 0-16-16zm0 320H176a16 16 0 0 0-16 16v32a16 16 0 0 0 16 16h320a16 16 0 0 0 16-16v-32a16 16 0 0 0-16-16zM16 160h64a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H64V40a8 8 0 0 0-8-8H32a8 8 0 0 0-7.14 4.42l-8 16A8 8 0 0 0 24 64h8v64H16a8 8 0 0 0-8 8v16a8 8 0 0 0 8 8zm-3.91 160H80a8 8 0 0 0 8-8v-16a8 8 0 0 0-8-8H41.32c3.29-10.29 48.34-18.68 48.34-56.44 0-29.06-25-39.56-44.47-39.56-21.36 0-33.8 10-40.46 18.75-4.37 5.59-3 10.84 2.8 15.37l8.58 6.88c5.61 4.56 11 2.47 16.12-2.44a13.44 13.44 0 0 1 9.46-3.84c3.33 0 9.28 1.56 9.28 8.75C51 248.19 0 257.31 0 304.59v4C0 316 5.08 320 12.09 320z"/></svg></button>
-
-      <button 
-        class="
-          wrap-code-button
-          tw-select-none 
-          tw-mx-2 
-          tw-hidden 
-          group-[.is-open]:tw-block 
-          group-[.is-wrap]:tw-text-fgColor-link 
-          print:!tw-hidden" 
-        title="Toggle code wrap"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M16 132h416c8.837 0 16-7.163 16-16V76c0-8.837-7.163-16-16-16H16C7.163 60 0 67.163 0 76v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16zm0 160h416c8.837 0 16-7.163 16-16v-40c0-8.837-7.163-16-16-16H16c-8.837 0-16 7.163-16 16v40c0 8.837 7.163 16 16 16z"/></svg></button>
-      
-      <button 
-        class="
-          copy-code-button
-          tw-select-none
-          tw-mx-2 
-          tw-hidden
-          group-[.is-open]:tw-block
-          hover:tw-text-fgColor-link 
-          print:!tw-hidden"
-        title="Copy code">
-          <span class="copy-icon tw-block"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M433.941 65.941l-51.882-51.882A48 48 0 0 0 348.118 0H176c-26.51 0-48 21.49-48 48v48H48c-26.51 0-48 21.49-48 48v320c0 26.51 21.49 48 48 48h224c26.51 0 48-21.49 48-48v-48h80c26.51 0 48-21.49 48-48V99.882a48 48 0 0 0-14.059-33.941zM266 464H54a6 6 0 0 1-6-6V150a6 6 0 0 1 6-6h74v224c0 26.51 21.49 48 48 48h96v42a6 6 0 0 1-6 6zm128-96H182a6 6 0 0 1-6-6V54a6 6 0 0 1 6-6h106v88c0 13.255 10.745 24 24 24h88v202a6 6 0 0 1-6 6zm6-256h-64V48h9.632c1.591 0 3.117.632 4.243 1.757l48.368 48.368a6 6 0 0 1 1.757 4.243V112z"/></svg></span>
-          <span class="check-icon tw-hidden"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"/></svg></span>
-      </button>
-        
-      <button 
-        class="
-          tw-select-none 
-          tw-mx-2 
-          tw-block 
-          group-[.is-open]:tw-hidden 
-          print:!tw-hidden" 
-        disabled
-        aria-hidden="true"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M328 256c0 39.8-32.2 72-72 72s-72-32.2-72-72 32.2-72 72-72 72 32.2 72 72zm104-72c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72zm-352 0c-39.8 0-72 32.2-72 72s32.2 72 72 72 72-32.2 72-72-32.2-72-72-72z"/></svg></button>
-    </div>
-  </div>
-  <pre style="counter-reset: codeblock;" class="tw-block tw-m-0 tw-p-0"><code 
-    id="codeblock-id-1" 
-    class="
-      chroma 
-      !tw-block 
-      tw-p-0
-      tw-m-0
-      tw-transition-[max-height] 
-      tw-duration-500 
-      tw-ease-in-out 
-      group-[.is-closed]:!tw-max-h-0 
-      group-[.is-wrap]:tw-text-wrap
-      tw-overflow-y-hidden
-      tw-overflow-x-auto
-      tw-scrollbar-thin
-      "><span class="line"><span class="cl"><span class="kn">import</span> <span class="nn">logging</span>
-</span></span><span class="line"><span class="cl"><span class="kn">from</span> <span class="nn">logging.config</span> <span class="kn">import</span> <span class="n">dictConfig</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="n">VLLM_LOGGING_PREFIX</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&#34;&#34;</span>
-</span></span><span class="line"><span class="cl"><span class="n">VLLM_LOGGING_LEVEL</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&#34;INFO&#34;</span>
-</span></span><span class="line"><span class="cl"><span class="n">VLLM_LOGGING_STREAM</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&#34;ext://sys.stdout&#34;</span>
-</span></span><span class="line"><span class="cl"><span class="n">_FORMAT</span> <span class="o">=</span> <span class="p">(</span><span class="sa">f</span><span class="s2">&#34;</span><span class="si">{</span><span class="n">VLLM_LOGGING_PREFIX</span><span class="si">}</span><span class="s2">%(levelname)s %(asctime)s &#34;</span>
-</span></span><span class="line"><span class="cl">           <span class="s2">&#34;[</span><span class="si">%(fileinfo)s</span><span class="s2">:</span><span class="si">%(lineno)d</span><span class="s2">] </span><span class="si">%(message)s</span><span class="s2">&#34;</span><span class="p">)</span>
-</span></span><span class="line"><span class="cl"><span class="n">_DATE_FORMAT</span> <span class="o">=</span> <span class="s2">&#34;%m-</span><span class="si">%d</span><span class="s2"> %H:%M:%S&#34;</span>
-</span></span><span class="line"><span class="cl"><span class="c1"># 这个变量是Logger的名字，请务必更改</span>
-</span></span><span class="line"><span class="cl"><span class="n">LOGGER_NAME</span><span class="p">:</span><span class="nb">str</span> <span class="o">=</span> <span class="s2">&#34;logger&#34;</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="n">DEFAULT_LOGGING_CONFIG</span> <span class="o">=</span> <span class="p">{</span>
-</span></span><span class="line"><span class="cl">    <span class="s2">&#34;formatters&#34;</span><span class="p">:</span> <span class="p">{</span>
-</span></span><span class="line"><span class="cl">        <span class="s2">&#34;vllm&#34;</span><span class="p">:</span> <span class="p">{</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;class&#34;</span><span class="p">:</span> <span class="s2">&#34;vllm.logging_utils.NewLineFormatter&#34;</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;datefmt&#34;</span><span class="p">:</span> <span class="n">_DATE_FORMAT</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;format&#34;</span><span class="p">:</span> <span class="n">_FORMAT</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">        <span class="p">},</span>
-</span></span><span class="line"><span class="cl">    <span class="p">},</span>
-</span></span><span class="line"><span class="cl">    <span class="s2">&#34;handlers&#34;</span><span class="p">:</span> <span class="p">{</span>
-</span></span><span class="line"><span class="cl">        <span class="s2">&#34;vllm&#34;</span><span class="p">:</span> <span class="p">{</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;class&#34;</span><span class="p">:</span> <span class="s2">&#34;logging.StreamHandler&#34;</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;formatter&#34;</span><span class="p">:</span> <span class="s2">&#34;vllm&#34;</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;level&#34;</span><span class="p">:</span> <span class="n">VLLM_LOGGING_LEVEL</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;stream&#34;</span><span class="p">:</span> <span class="n">VLLM_LOGGING_STREAM</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">        <span class="p">},</span>
-</span></span><span class="line"><span class="cl">    <span class="p">},</span>
-</span></span><span class="line"><span class="cl">    <span class="s2">&#34;loggers&#34;</span><span class="p">:</span> <span class="p">{</span>
-</span></span><span class="line"><span class="cl">        <span class="n">LOGGER_NAME</span><span class="p">:</span> <span class="p">{</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;handlers&#34;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&#34;vllm&#34;</span><span class="p">],</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;level&#34;</span><span class="p">:</span> <span class="s2">&#34;DEBUG&#34;</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">            <span class="s2">&#34;propagate&#34;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">        <span class="p">},</span>
-</span></span><span class="line"><span class="cl">    <span class="p">},</span>
-</span></span><span class="line"><span class="cl">    <span class="s2">&#34;version&#34;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span>
-</span></span><span class="line"><span class="cl">    <span class="s2">&#34;disable_existing_loggers&#34;</span><span class="p">:</span> <span class="kc">False</span>
-</span></span><span class="line"><span class="cl"><span class="p">}</span>
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl">
-</span></span><span class="line"><span class="cl"><span class="n">dictConfig</span><span class="p">(</span><span class="n">DEFAULT_LOGGING_CONFIG</span><span class="p">)</span>
-</span></span><span class="line"><span class="cl"><span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">LOGGER_NAME</span><span class="p">)</span>
-</span></span><span class="line"><span class="cl"><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&#34;hello world&#34;</span><span class="p">)</span></span></span></code></pre>
-</div>
-<h3 id="formattersvllmclass" class="headerLink">
-    <a href="#formattersvllmclass" class="header-mark"></a>0.1 formatters.vllm.class</h3><div class="details admonition note open">
-    <div class="details-summary admonition-title">
-        <span class="icon"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M497.9 142.1l-46.1 46.1c-4.7 4.7-12.3 4.7-17 0l-111-111c-4.7-4.7-4.7-12.3 0-17l46.1-46.1c18.7-18.7 49.1-18.7 67.9 0l60.1 60.1c18.8 18.7 18.8 49.1 0 67.9zM284.2 99.8L21.6 362.4.4 483.9c-2.9 16.4 11.4 30.6 27.8 27.8l121.5-21.3 262.6-262.6c4.7-4.7 4.7-12.3 0-17l-111-111c-4.8-4.7-12.4-4.7-17.1 0zM124.1 339.9c-5.5-5.5-5.5-14.3 0-19.8l154-154c5.5-5.5 14.3-5.5 19.8 0s5.5 14.3 0 19.8l-154 154c-5.5 5.5-14.3 5.5-19.8 0zM88 424h48v36.3l-64.5 11.3-31.1-31.1L51.7 376H88v48z"/></svg></span>Note<span class="details-icon"><svg class="icon"
-    xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 512"><!-- Font Awesome Free 5.15.4 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) --><path d="M224.3 273l-136 136c-9.4 9.4-24.6 9.4-33.9 0l-22.6-22.6c-9.4-9.4-9.4-24.6 0-33.9l96.4-96.4-96.4-96.4c-9.4-9.4-9.4-24.6 0-33.9L54.3 103c9.4-9.4 24.6-9.4 33.9 0l136 136c9.5 9.4 9.5 24.6.1 34z"/></svg></span>
-    </div>
-    <div class="details-content">
-        <div class="admonition-content"><p>需要放在独立的模块中，且确保可以导入</p>]]></description></item></channel></rss>
+        <div class="admonition-content"><p>本文旨在深入分析 vLLM (V1 Engine) 的核心指标计算逻辑，重点关注以下关键指标的实现原理与代码位置：</p>]]></description></item></channel></rss>
