@@ -1,1 +1,16 @@
-<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>所有文章 - 小饭的技术站</title><link>https://www.65811786.xyz/posts/</link><description>所有文章 | 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Mon, 19 Jan 2026 09:59:58 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/posts/" rel="self" type="application/rss+xml"/><item><title>vLLM Metrics 计算详解</title><link>https://www.65811786.xyz/posts/ai/metrics/vllm-metrics-%E8%AE%A1%E7%AE%97%E8%AF%A6%E8%A7%A3/</link><pubDate>Mon, 05 Jan 2026 21:08:59 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/ai/metrics/vllm-metrics-%E8%AE%A1%E7%AE%97%E8%AF%A6%E8%A7%A3/</guid><description><![CDATA[<p>本文档旨在深入剖析 vLLM V1 引擎中 Metrics（指标）的底层计算逻辑。我们将剥离上层 API 的封装，直接深入 <code>vllm/v1/metrics/stats.py</code>、<code>loggers.py</code> 和 <code>scheduler.py</code> 源码，解析从 Request 到达、调度、执行到最终完成的全生命周期中，关键性能指标是如何被精确捕获、计算并暴露给 Prometheus 的。</p>]]></description></item></channel></rss>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0"><channel><title>所有文章 - 小饭的技术站</title><link>https://www.65811786.xyz/posts/</link><description>所有文章 | 小饭的技术站</description><generator>Hugo -- gohugo.io</generator><language>zh-CN</language><lastBuildDate>Thu, 05 Feb 2026 20:46:10 +0800</lastBuildDate><atom:link href="https://www.65811786.xyz/posts/" rel="self" type="application/rss+xml"/><item><title>ADB 快速开始（Mac 连接电视盒子）</title><link>https://www.65811786.xyz/posts/android/adb%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</link><pubDate>Thu, 05 Feb 2026 20:46:10 +0800</pubDate><author><name>小饭</name></author><guid>https://www.65811786.xyz/posts/android/adb%E5%BF%AB%E9%80%9F%E5%BC%80%E5%A7%8B/</guid><description><![CDATA[<h2 id="使用流程最短路径" class="headerLink">
+    <a href="#%e4%bd%bf%e7%94%a8%e6%b5%81%e7%a8%8b%e6%9c%80%e7%9f%ad%e8%b7%af%e5%be%84" class="header-mark"></a>9 使用流程（最短路径）</h2><ol>
+<li>Mac 上下载 APK（浏览器或 <code>curl</code> 均可）</li>
+<li>通过 ADB 与电视盒子建立连接</li>
+<li>传输并安装 APK（<code>adb install</code> 或 <code>adb push</code> + <code>pm install</code>）</li>
+</ol>
+<h2 id="安卓端配置电视盒子" class="headerLink">
+    <a href="#%e5%ae%89%e5%8d%93%e7%ab%af%e9%85%8d%e7%bd%ae%e7%94%b5%e8%a7%86%e7%9b%92%e5%ad%90" class="header-mark"></a>10 安卓端配置（电视盒子）</h2><h3 id="android-11-无线调试推荐" class="headerLink">
+    <a href="#android-11-%e6%97%a0%e7%ba%bf%e8%b0%83%e8%af%95%e6%8e%a8%e8%8d%90" class="header-mark"></a>10.1 Android 11+ 无线调试（推荐）</h3><ol>
+<li>打开开发者选项</li>
+<li>打开无线调试</li>
+<li>进入「无线调试」页，选择「使用配对码配对设备」或「使用二维码配对设备」</li>
+<li>记下屏幕显示的 IP 与端口，并使用配对码完成配对</li>
+</ol>
+<blockquote>
+  <p>电视设备需要 Android 13+ 才支持无线调试配对流程。<a href="https://developer.android.com/tools/adb" target="_blank" rel="noopener noreferrer">(Android Developers)</a></p>]]></description></item></channel></rss>

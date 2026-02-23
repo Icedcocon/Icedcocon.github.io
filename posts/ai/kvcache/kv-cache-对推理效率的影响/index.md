@@ -141,8 +141,6 @@ $$ 6 \times 12850 \times 10^6 \times 300 \times 10^9 = 2.313 \times 10^{22} $$
 | ChatGPT (GPT-4) | 175B       | 2048            | 8          | 12288       | 96               | ~7.0 × 10³ T FLOPs |
 
 
-本文将深入探讨 KV Cache（特别是 Prefix Cache）在 LLM 推理的 Prefill 阶段对计算量（FLOPs）的具体影响。我们将以 DeepSeek-V2/V3 架构中的 MLA（Multi-Head Latent Attention）和 MoE（Mixture of Experts）模块为例，推导详细的计算量公式，并对比不同前缀匹配长度下的效率差异。
-
 ## 1. Qwen3-8B
 
 基于提供的 `config.json` 配置，我们逐一计算 Qwen3-8B 的推理计算量。
@@ -197,10 +195,10 @@ $$ FLOPs_{sparse}(s) = n \times 4sh = 144 \times 4096 \times s \approx 0.59s \te
 
 文中给出了两种快速估算方法，我们来验证其在 Qwen3-8B 上的准确性。
 
-| 估算方法 | 公式 | 计算结果 | 与精确值 (15.13G) 误差 | 备注 |
-| :--- | :--- | :--- | :--- | :--- |
-| **通用公式法** | $24nh^2$ | $24 \times 36 \times 4096^2 \approx \mathbf{14.50 \text{ G}}$ | $-4.2\%$ | 忽略了 Logits 和 SwiGLU/GQA 差异 |
-| **参数量法** | $2 \times P$ | 参数量 $P \approx 7.6\text{B}$ <br> $2 \times 7.6 \approx \mathbf{15.20 \text{ G}}$ | $+0.5\%$ | **最准确** |
+| 估算方法      | 公式           | 计算结果                                                                             | 与精确值 (15.13G) 误差 | 备注                         |
+| :-------- | :----------- | :------------------------------------------------------------------------------- | :--------------- | :------------------------- |
+| **通用公式法** | $24nh^2$     | $24 \times 36 \times 4096^2 \approx \mathbf{14.50 \text{ G}}$                    | $-4.2\%$         | 忽略了 Logits 和 SwiGLU/GQA 差异 |
+| **参数量法**  | $2 \times P$ | 参数量 $P \approx 7.6\text{B}$ <br> $2 \times 7.6 \approx \mathbf{15.20 \text{ G}}$ | $+0.5\%$         | **最准确**                    |
 
 > 注：参数量 $P$ 估算：$P \approx n(11.5h^2) + hV \approx 6.95\text{B} + 0.62\text{B} = 7.57\text{B}$。
 
@@ -214,7 +212,7 @@ $$ FLOPs_{sparse}(s) = n \times 4sh = 144 \times 4096 \times s \approx 0.59s \te
 
 
 
-##  2. 核心计算量公式推导
+##   附录一
 
 在推理的 Prefill 阶段，模型需要处理输入的 Prompt。假设输入 Prompt 的总长度为 $L_{total}$，其中 $L_{cached}$ 为已命中的前缀缓存长度（无需重新计算 KV），$L_{new}$ 为需要新计算的 Token 长度。即：
 $$ L_{total} = L_{cached} + L_{new} $$
@@ -289,7 +287,7 @@ $$ \text{FLOPs}_{FFN} = 2 \cdot B \cdot L_{new} \cdot (N_{shared} + N_{active}) 
 
 ---
 
-## 2. KV Cache 带来的效率提升分析
+###  2. KV Cache 带来的效率提升分析
 
 我们将总计算量简化对比：
 
@@ -307,7 +305,7 @@ $$ \text{GFLOPs}_{saving} \approx \underbrace{C_{linear} \cdot L_{cached}}_{\tex
 
 ---
 
-## 附录：计算量折线图绘制代码
+## 附录二：计算量折线图绘制代码
 
 以下 Python 代码用于绘制以 **Prefix Cache Length** 作为横坐标，以计算量 Gflops 作为纵坐标的，在不同固定序列长度下的计算量对比图（如 Prefill 1k, 4k, 8k, 16k Sequence）。
 
