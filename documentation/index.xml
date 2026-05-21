@@ -1,7 +1,0 @@
-<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
-    <channel>
-        <title>文档 -  - 小饭的技术站</title>
-        <link>http://192.168.2.20:1313/documentation/</link>
-        <description>文档 -  - 小饭的技术站</description>
-        <generator>Hugo -- gohugo.io</generator><language>zh</language><atom:link href="http://192.168.2.20:1313/documentation/" rel="self" type="application/rss+xml" /></channel>
-</rss>
